@@ -1,0 +1,20 @@
+ai-review:
+  when: manual
+  stage: review
+  image: iwangle/ai-review:latest
+  rules:
+    - if: '$CI_MERGE_REQUEST_IID'
+  script:
+    - ai-review run-inline
+  variables:
+    GIT_DEPTH: 0
+    LLM__MODEL: "claude-sonnet-4-20250514"
+    LLM__MAX_TOKENS: "4096"
+    LLM__API_URL: "https://api.anthropic.com"
+    LLM__API_TOKEN: "$ANTHROPIC_API_KEY"
+    VCS__PROVIDER: "GITLAB"
+    VCS__PIPELINE__PROJECT_ID: "$CI_PROJECT_ID"
+    VCS__PIPELINE__MERGE_REQUEST_ID: "$CI_MERGE_REQUEST_IID"
+    VCS__HTTP_CLIENT__API_URL: "$CI_SERVER_URL"
+    VCS__HTTP_CLIENT__API_TOKEN: "$CI_JOB_TOKEN"
+  allow_failure: true
