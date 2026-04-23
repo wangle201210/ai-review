@@ -21,7 +21,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           LLM__API_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
-          LLM__MODEL: claude-sonnet-4-20250514
+          LLM__MODEL: GLM-4.7
           LLM__API_URL: https://api.z.ai/api/anthropic
           VCS__PROVIDER: GITHUB
           VCS__PIPELINE__OWNER: ${{ github.repository_owner }}
