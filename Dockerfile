@@ -6,7 +6,8 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /ai-review ./cmd/ai-review
 
 FROM node:20-slim
-RUN apt-get update && apt-get install -y --no-install-recommends git curl jq \
+RUN apt-get update && apt-get install -y --no-install-recommends git curl jq ca-certificates \
+    && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ]; then \
