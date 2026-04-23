@@ -1,0 +1,26 @@
+# AI Review configuration
+llm:
+  model: claude-sonnet-4-20250514
+  max_tokens: 4096
+  temperature: 0.3
+  api_url: https://api.anthropic.com
+  api_token: ${ANTHROPIC_API_KEY}
+
+vcs:
+  provider: GITLAB
+  pipeline:
+    project_id: ${CI_PROJECT_ID}
+    merge_request_id: ${CI_MERGE_REQUEST_IID}
+  http_client:
+    api_url: ${CI_SERVER_URL}
+    api_token: ${CI_JOB_TOKEN}
+
+agent:
+  enabled: false
+  max_iterations: 25
+  max_total_context_chars: 40000
+  command_timeout: 10
+
+review:
+  dry_run: false
+  mode: ONLY_ADDED
