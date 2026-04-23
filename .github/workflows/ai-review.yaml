@@ -20,8 +20,8 @@ jobs:
       - name: Run AI Review
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          LLM__MODEL: claude-sonnet-4-20250514
-          LLM__API_URL: https://api.anthropic.com
+          LLM__MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+          LLM__API_URL: ${{ secrets.ANTHROPIC_API_URL }}
           LLM__API_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
           VCS__PROVIDER: GITHUB
           VCS__PIPELINE__OWNER: ${{ github.repository_owner }}
