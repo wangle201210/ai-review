@@ -106,8 +106,12 @@ func runClaudeCLIReview(ctx context.Context, cfg *config.Config, vcsClient vcs.C
 
 	// Get diff text
 	diffText, err := getDiff(ctx, info, vcsClient)
-	if err != nil || diffText == "" {
+	if err != nil {
 		return fmt.Errorf("get diff: %w", err)
+	}
+	if diffText == "" {
+		log.Println("[main] No diff available, skipping review")
+		return nil
 	}
 	log.Printf("[main] Diff: %d chars\n", len(diffText))
 
@@ -164,8 +168,12 @@ func runSummaryReview(ctx context.Context, cfg *config.Config, vcsClient vcs.Cli
 	log.Println("[main] Starting summary review (via API)...")
 
 	diffText, err := getDiff(ctx, nil, vcsClient)
-	if err != nil || diffText == "" {
+	if err != nil {
 		return fmt.Errorf("get diff: %w", err)
+	}
+	if diffText == "" {
+		log.Println("[main] No diff available, skipping summary review")
+		return nil
 	}
 
 	llmClient := llmPkg.NewClaudeClient(
