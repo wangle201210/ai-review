@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"log"
 	"os"
 	"os/exec"
@@ -42,16 +41,11 @@ type ReviewResult struct {
 	Duration int64
 }
 
-func RunReview(ctx context.Context, workDir, prompt string, skillDir string, cleanupDir string, env Env) (*ReviewResult, error) {
+func RunReview(ctx context.Context, workDir, prompt string, skillDir string, env Env) (*ReviewResult, error) {
 	cmd := BuildCmd(ctx, prompt, skillDir, env.ClaudeModel, env.MaxTurns)
 	cmd.Dir = workDir
 	cmd.Stdin = nil
 	cmd.Env = buildEnviron(env)
-
-	// Ensure cleanup of temp skill dir
-	if cleanupDir != "" {
-		defer os.RemoveAll(cleanupDir)
-	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -212,27 +206,4 @@ func buildEnviron(env Env) []string {
 	}
 
 	return cleaned
-}
-
-func WriteSkillFiles(skillFS fs.FS, destDir string) error {
-	return fs.WalkDir(skillFS, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		targetPath := filepath.Join(destDir, path)
-		if d.IsDir() {
-			return os.MkdirAll(targetPath, 0755)
-		}
-		data, err := fs.ReadFile(skillFS, path)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(targetPath, data, 0644); err != nil {
-			return err
-		}
-		if strings.HasSuffix(path, ".sh") {
-			os.Chmod(targetPath, 0755)
-		}
-		return nil
-	})
 }

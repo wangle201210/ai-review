@@ -1,26 +1,21 @@
 package claude
 
 import (
-	"embed"
 	"fmt"
-	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
-//go:embed conf/deep_review_prompt.md
-var promptFS embed.FS
-
-//go:embed conf/skills
-var skillsFS embed.FS
-
-func SkillsFS() fs.FS {
-	sub, _ := fs.Sub(skillsFS, "conf/skills")
-	return sub
+func confDir() string {
+	if d := os.Getenv("AI_REVIEW_CONF_DIR"); d != "" {
+		return d
+	}
+	return "./conf"
 }
 
 func BuildPrompt(diffText string) string {
-	data, err := promptFS.ReadFile("conf/deep_review_prompt.md")
+	data, err := os.ReadFile(filepath.Join(confDir(), "deep_review_prompt.md"))
 	if err != nil {
 		return "Review the following code changes and post inline comments:\n\n" + diffText
 	}
@@ -41,12 +36,12 @@ func loadSkillInstructions(provider string) string {
 	var skillPath string
 	switch strings.ToUpper(provider) {
 	case "GITHUB":
-		skillPath = "conf/skills/github-inline-review/SKILL.md"
+		skillPath = filepath.Join(confDir(), "skills", "github-inline-review", "SKILL.md")
 	default:
-		skillPath = "conf/skills/gitlab-inline-review/SKILL.md"
+		skillPath = filepath.Join(confDir(), "skills", "gitlab-inline-review", "SKILL.md")
 	}
 
-	data, err := skillsFS.ReadFile(skillPath)
+	data, err := os.ReadFile(skillPath)
 	if err != nil {
 		return fmt.Sprintf("Error loading skill: %v", err)
 	}
@@ -62,23 +57,12 @@ func loadSkillInstructions(provider string) string {
 	return content
 }
 
-// WriteSkillFilesToDir writes embedded skill files to a temp directory.
-// Returns (skillDir, cleanupDir, error). cleanupDir is the parent temp dir to remove when done.
-func WriteSkillFilesToDir(provider string) (skillDir string, cleanupDir string, err error) {
-	tmpDir, err := os.MkdirTemp("", "ai-review-skills-")
-	if err != nil {
-		return "", "", err
-	}
-
-	if err := WriteSkillFiles(SkillsFS(), tmpDir); err != nil {
-		os.RemoveAll(tmpDir)
-		return "", "", err
-	}
-
+// GetSkillDir returns the skill directory path for the given provider.
+func GetSkillDir(provider string) string {
 	switch strings.ToUpper(provider) {
 	case "GITHUB":
-		return tmpDir + "/github-inline-review", tmpDir, nil
+		return filepath.Join(confDir(), "skills", "github-inline-review")
 	default:
-		return tmpDir + "/gitlab-inline-review", tmpDir, nil
+		return filepath.Join(confDir(), "skills", "gitlab-inline-review")
 	}
 }
