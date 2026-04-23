@@ -2,6 +2,7 @@ package claude
 
 import (
 	"embed"
+	"fmt"
 	"io/fs"
 	"os"
 	"strings"
@@ -24,6 +25,41 @@ func BuildPrompt(diffText string) string {
 		return "Review the following code changes and post inline comments:\n\n" + diffText
 	}
 	return strings.ReplaceAll(string(data), "{{DIFF_TEXT}}", diffText)
+}
+
+// BuildPromptWithSkills builds the review prompt with skill instructions embedded directly.
+func BuildPromptWithSkills(diffText, provider string) string {
+	prompt := BuildPrompt(diffText)
+
+	skillContent := loadSkillInstructions(provider)
+	prompt = strings.ReplaceAll(prompt, "{{SKILL_INSTRUCTIONS}}", skillContent)
+
+	return prompt
+}
+
+func loadSkillInstructions(provider string) string {
+	var skillPath string
+	switch strings.ToUpper(provider) {
+	case "GITHUB":
+		skillPath = "conf/skills/github-inline-review/SKILL.md"
+	default:
+		skillPath = "conf/skills/gitlab-inline-review/SKILL.md"
+	}
+
+	data, err := skillsFS.ReadFile(skillPath)
+	if err != nil {
+		return fmt.Sprintf("Error loading skill: %v", err)
+	}
+
+	content := string(data)
+	// Strip YAML frontmatter
+	if idx := strings.Index(content, "---"); idx == 0 {
+		if end := strings.Index(content[3:], "---"); end != -1 {
+			content = strings.TrimSpace(content[3+end+3:])
+		}
+	}
+
+	return content
 }
 
 // WriteSkillFilesToDir writes embedded skill files to a temp directory.

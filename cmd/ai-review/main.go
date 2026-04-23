@@ -119,8 +119,8 @@ func runClaudeCLIReview(ctx context.Context, cfg *config.Config, vcsClient vcs.C
 	}
 	log.Printf("[main] Skill dir: %s\n", skillDir)
 
-	// Build prompt
-	reviewPrompt := claude.BuildPrompt(diffText)
+	// Build prompt with skill instructions embedded
+	reviewPrompt := claude.BuildPromptWithSkills(diffText, provider)
 
 	// Determine work directory (current directory, should be repo root in CI)
 	workDir, _ := os.Getwd()
