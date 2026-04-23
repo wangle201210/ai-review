@@ -1,0 +1,32 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  ai-review:
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.pull_request.title, '[skip-review]') }}
+    container:
+      image: iwangle/ai-review:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run AI Review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LLM__MODEL: claude-sonnet-4-20250514
+          LLM__API_URL: https://api.anthropic.com
+          LLM__API_TOKEN: ${{ secrets.ANTHROPIC_API_KEY }}
+          VCS__PROVIDER: GITHUB
+          VCS__PIPELINE__OWNER: ${{ github.repository_owner }}
+          VCS__PIPELINE__REPO: ${{ github.event.repository.name }}
+          VCS__PIPELINE__PULL_NUMBER: ${{ github.event.pull_request.number }}
+          VCS__HTTP_CLIENT__API_URL: https://api.github.com
+          VCS__HTTP_CLIENT__API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AGENT__MAX_ITERATIONS: 25
+        run: ai-review run-inline

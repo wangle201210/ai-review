@@ -1,7 +1,7 @@
 ai-review:
   when: manual
   stage: review
-  image: wangle201210/ai-review:latest
+  image: iwangle/ai-review:latest
   rules:
     - if: '$CI_MERGE_REQUEST_IID'
   script:
