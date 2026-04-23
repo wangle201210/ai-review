@@ -17,5 +17,6 @@ RUN ARCH=$(uname -m) && \
     fi && \
     npm install -g @anthropic-ai/claude-code@2.1.118 $NATIVE_PKG
 COPY --from=builder /ai-review /usr/local/bin/ai-review
+COPY --from=builder /app/conf /app/conf
 WORKDIR /app
 ENTRYPOINT ["ai-review"]

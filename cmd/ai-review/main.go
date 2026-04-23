@@ -115,12 +115,8 @@ func runClaudeCLIReview(ctx context.Context, cfg *config.Config, vcsClient vcs.C
 	}
 	log.Printf("[main] Diff: %d chars\n", len(diffText))
 
-	// Write skill files to temp dir
 	provider := strings.ToUpper(cfg.VCS.Provider)
-	skillDir, cleanupDir, err := claude.WriteSkillFilesToDir(provider)
-	if err != nil {
-		return fmt.Errorf("write skill files: %w", err)
-	}
+	skillDir := claude.GetSkillDir(provider)
 	log.Printf("[main] Skill dir: %s\n", skillDir)
 
 	// Build prompt with skill instructions embedded
@@ -154,7 +150,7 @@ func runClaudeCLIReview(ctx context.Context, cfg *config.Config, vcsClient vcs.C
 		claudeEnv.GitLabToken = cfg.VCS.HTTP.APIToken
 	}
 
-	result, err := claude.RunReview(ctx, workDir, reviewPrompt, skillDir, cleanupDir, claudeEnv)
+	result, err := claude.RunReview(ctx, workDir, reviewPrompt, skillDir, claudeEnv)
 	if err != nil {
 		return err
 	}
