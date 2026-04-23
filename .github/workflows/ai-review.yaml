@@ -10,6 +10,7 @@ jobs:
     if: ${{ !contains(github.event.pull_request.title, '[skip-review]') }}
     container:
       image: iwangle/ai-review:latest
+      options: --user root
     steps:
       - name: Checkout
         uses: actions/checkout@v4
