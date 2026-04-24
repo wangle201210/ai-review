@@ -2,7 +2,7 @@ name: Docker Build & Push
 
 on:
   push:
-    branches: [main, feat/init]
+    branches: [main]
     tags: ["v*"]
 
 jobs:
