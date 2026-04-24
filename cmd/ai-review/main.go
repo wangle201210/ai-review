@@ -106,21 +106,21 @@ func runClaudeCLIReview(ctx context.Context, cfg *config.Config, vcsClient vcs.C
 
 	// Get diff text
 	diffText, err := getDiff(ctx, info, vcsClient)
-	if err != nil || diffText == "" {
+	if err != nil {
 		return fmt.Errorf("get diff: %w", err)
+	}
+	if diffText == "" {
+		log.Println("[main] No diff available, skipping review")
+		return nil
 	}
 	log.Printf("[main] Diff: %d chars\n", len(diffText))
 
-	// Write skill files to temp dir
 	provider := strings.ToUpper(cfg.VCS.Provider)
-	skillDir, cleanupDir, err := claude.WriteSkillFilesToDir(provider)
-	if err != nil {
-		return fmt.Errorf("write skill files: %w", err)
-	}
+	skillDir := claude.GetSkillDir(provider)
 	log.Printf("[main] Skill dir: %s\n", skillDir)
 
-	// Build prompt
-	reviewPrompt := claude.BuildPrompt(diffText)
+	// Build prompt with skill instructions embedded
+	reviewPrompt := claude.BuildPromptWithSkills(diffText, provider)
 
 	// Determine work directory (current directory, should be repo root in CI)
 	workDir, _ := os.Getwd()
@@ -150,7 +150,7 @@ func runClaudeCLIReview(ctx context.Context, cfg *config.Config, vcsClient vcs.C
 		claudeEnv.GitLabToken = cfg.VCS.HTTP.APIToken
 	}
 
-	result, err := claude.RunReview(ctx, workDir, reviewPrompt, skillDir, cleanupDir, claudeEnv)
+	result, err := claude.RunReview(ctx, workDir, reviewPrompt, skillDir, claudeEnv)
 	if err != nil {
 		return err
 	}
@@ -164,8 +164,12 @@ func runSummaryReview(ctx context.Context, cfg *config.Config, vcsClient vcs.Cli
 	log.Println("[main] Starting summary review (via API)...")
 
 	diffText, err := getDiff(ctx, nil, vcsClient)
-	if err != nil || diffText == "" {
+	if err != nil {
 		return fmt.Errorf("get diff: %w", err)
+	}
+	if diffText == "" {
+		log.Println("[main] No diff available, skipping summary review")
+		return nil
 	}
 
 	llmClient := llmPkg.NewClaudeClient(
