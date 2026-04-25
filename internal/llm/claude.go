@@ -35,22 +35,12 @@ func NewClaudeClient(apiKey, apiURL, model string, maxTokens int, temperature fl
 
 	client := anthropic.NewClient(opts...)
 
-	t := 120 * time.Second
-	if timeout > 0 {
-		t = time.Duration(timeout) * time.Second
-	}
-
-	mt := int64(4096)
-	if maxTokens > 0 {
-		mt = int64(maxTokens)
-	}
-
 	return &ClaudeClient{
 		client:      &client,
 		model:       model,
-		maxTokens:   mt,
+		maxTokens:   int64(maxTokens),
 		temperature: temperature,
-		timeout:     t,
+		timeout:     time.Duration(timeout) * time.Second,
 	}
 }
 

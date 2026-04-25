@@ -16,11 +16,7 @@ vcs:
     api_token: ${CI_JOB_TOKEN}
 
 agent:
-  enabled: false
   max_iterations: 25
-  max_total_context_chars: 40000
-  command_timeout: 10
 
 review:
   dry_run: false
-  mode: ONLY_ADDED

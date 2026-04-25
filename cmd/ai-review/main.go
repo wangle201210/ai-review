@@ -14,8 +14,8 @@ import (
 	"github.com/wangle201210/ai-review/internal/prompt"
 	"github.com/wangle201210/ai-review/internal/review"
 	"github.com/wangle201210/ai-review/internal/vcs"
-	gitlabVCS "github.com/wangle201210/ai-review/internal/vcs/gitlab"
 	githubVCS "github.com/wangle201210/ai-review/internal/vcs/github"
+	gitlabVCS "github.com/wangle201210/ai-review/internal/vcs/gitlab"
 )
 
 func main() {
@@ -75,37 +75,7 @@ func runReview(doInline, doSummary bool) error {
 		return err
 	}
 
-	info, err := vcsClient.GetReviewInfo(ctx)
-	if err != nil {
-		return fmt.Errorf("get review info: %w", err)
-	}
-	log.Printf("[main] Review: %s (%s → %s)\n", info.Title, info.SourceBranch, info.TargetBranch)
-
-	// Inline review via Claude CLI
-	if doInline {
-		if err := runClaudeCLIReview(ctx, cfg, vcsClient, info); err != nil {
-			log.Printf("[main] Claude CLI review error: %v\n", err)
-			if !doSummary {
-				return err
-			}
-		}
-	}
-
-	// Summary review via Anthropic API
-	if doSummary {
-		if err := runSummaryReview(ctx, cfg, vcsClient); err != nil {
-			return fmt.Errorf("summary review: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func runClaudeCLIReview(ctx context.Context, cfg *config.Config, vcsClient vcs.Client, info *vcs.ReviewInfo) error {
-	log.Println("[main] Starting Claude CLI deep review...")
-
-	// Get diff text
-	diffText, err := getDiff(ctx, info, vcsClient)
+	diffText, err := vcsClient.GetDiff(ctx)
 	if err != nil {
 		return fmt.Errorf("get diff: %w", err)
 	}
@@ -115,39 +85,64 @@ func runClaudeCLIReview(ctx context.Context, cfg *config.Config, vcsClient vcs.C
 	}
 	log.Printf("[main] Diff: %d chars\n", len(diffText))
 
+	if doInline {
+		info, err := vcsClient.GetReviewInfo(ctx)
+		if err != nil {
+			return fmt.Errorf("get review info: %w", err)
+		}
+		log.Printf("[main] Review: %s (%s → %s)\n", info.Title, info.SourceBranch, info.TargetBranch)
+
+		if err := runClaudeCLIReview(ctx, cfg, diffText, info); err != nil {
+			log.Printf("[main] Claude CLI review error: %v\n", err)
+			if !doSummary {
+				return err
+			}
+		}
+	}
+
+	if doSummary {
+		if err := runSummaryReview(ctx, cfg, vcsClient, diffText); err != nil {
+			return fmt.Errorf("summary review: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func runClaudeCLIReview(ctx context.Context, cfg *config.Config, diffText string, info *vcs.ReviewInfo) error {
+	log.Println("[main] Starting Claude CLI deep review...")
+
 	provider := strings.ToUpper(cfg.VCS.Provider)
 	skillDir := claude.GetSkillDir(provider)
 	log.Printf("[main] Skill dir: %s\n", skillDir)
 
-	// Build prompt with skill instructions embedded
 	reviewPrompt := claude.BuildPromptWithSkills(diffText, provider)
 
-	// Determine work directory (current directory, should be repo root in CI)
 	workDir, _ := os.Getwd()
 
-	// Build env for Claude CLI
 	claudeEnv := claude.Env{
-		VCSProvider:      provider,
-		AnthropicAPIKey:  cfg.LLM.APIToken,
-		AnthropicURL:     cfg.LLM.APIURL,
-		ClaudeModel:      cfg.LLM.Model,
-		MaxTurns:         cfg.Agent.MaxIterations,
-		GitLabURL:        cfg.VCS.HTTP.APIURL,
-		GitLabToken:      cfg.VCS.HTTP.APIToken,
-		GitLabProjectID:  cfg.VCS.Pipeline.ProjectID,
-		GitLabMRIID:      cfg.VCS.Pipeline.MergeRequestID,
-		GitLabBaseSHA:    info.BaseSHA,
-		GitLabHeadSHA:    info.HeadSHA,
-		GitLabStartSHA:   info.StartSHA,
-		GitHubOwner:      cfg.VCS.Pipeline.Owner,
-		GitHubRepo:       cfg.VCS.Pipeline.Repo,
-		GitHubPullNumber: cfg.VCS.Pipeline.PullNumber,
-		GitHubHeadSHA:    info.HeadSHA,
-		GitHubAPIURL:     cfg.VCS.HTTP.APIURL,
+		VCSProvider:     provider,
+		AnthropicAPIKey: cfg.LLM.APIToken,
+		AnthropicURL:    cfg.LLM.APIURL,
+		ClaudeModel:     cfg.LLM.Model,
+		MaxTurns:        cfg.Agent.MaxIterations,
 	}
-	// For GitHub, reuse the VCS HTTP token
-	if provider == "GITHUB" {
+	switch provider {
+	case "GITHUB":
+		claudeEnv.GitHubOwner = cfg.VCS.Pipeline.Owner
+		claudeEnv.GitHubRepo = cfg.VCS.Pipeline.Repo
+		claudeEnv.GitHubPullNumber = cfg.VCS.Pipeline.PullNumber
+		claudeEnv.GitHubHeadSHA = info.HeadSHA
+		claudeEnv.GitHubAPIURL = cfg.VCS.HTTP.APIURL
+		claudeEnv.GitHubToken = cfg.VCS.HTTP.APIToken
+	default:
+		claudeEnv.GitLabURL = cfg.VCS.HTTP.APIURL
 		claudeEnv.GitLabToken = cfg.VCS.HTTP.APIToken
+		claudeEnv.GitLabProjectID = cfg.VCS.Pipeline.ProjectID
+		claudeEnv.GitLabMRIID = cfg.VCS.Pipeline.MergeRequestID
+		claudeEnv.GitLabBaseSHA = info.BaseSHA
+		claudeEnv.GitLabHeadSHA = info.HeadSHA
+		claudeEnv.GitLabStartSHA = info.StartSHA
 	}
 
 	result, err := claude.RunReview(ctx, workDir, reviewPrompt, skillDir, claudeEnv)
@@ -160,17 +155,8 @@ func runClaudeCLIReview(ctx context.Context, cfg *config.Config, vcsClient vcs.C
 	return nil
 }
 
-func runSummaryReview(ctx context.Context, cfg *config.Config, vcsClient vcs.Client) error {
+func runSummaryReview(ctx context.Context, cfg *config.Config, vcsClient vcs.Client, diffText string) error {
 	log.Println("[main] Starting summary review (via API)...")
-
-	diffText, err := getDiff(ctx, nil, vcsClient)
-	if err != nil {
-		return fmt.Errorf("get diff: %w", err)
-	}
-	if diffText == "" {
-		log.Println("[main] No diff available, skipping summary review")
-		return nil
-	}
 
 	llmClient := llmPkg.NewClaudeClient(
 		cfg.LLM.APIToken, cfg.LLM.APIURL, cfg.LLM.Model,
@@ -182,18 +168,6 @@ func runSummaryReview(ctx context.Context, cfg *config.Config, vcsClient vcs.Cli
 	}
 
 	return review.RunSummary(ctx, llmClient, vcsClient, diffText, cfg, promptSvc)
-}
-
-func getDiff(ctx context.Context, info *vcs.ReviewInfo, vcsClient vcs.Client) (string, error) {
-	// Try VCS API (always works, even outside git repo)
-	diffText, err := vcsClient.GetDiff(ctx)
-	if err == nil && diffText != "" {
-		return diffText, nil
-	}
-	if err != nil {
-		log.Printf("[main] VCS API diff failed: %v\n", err)
-	}
-	return "", fmt.Errorf("no diff available")
 }
 
 func createVCSClient(cfg *config.Config) (vcs.Client, error) {

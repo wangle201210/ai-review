@@ -9,10 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
 type Env struct {
+	// GitLab
 	GitLabURL       string
 	GitLabToken     string
 	GitLabProjectID string
@@ -26,6 +28,7 @@ type Env struct {
 	GitHubPullNumber int
 	GitHubHeadSHA    string
 	GitHubAPIURL     string
+	GitHubToken      string
 	// LLM
 	AnthropicAPIKey string
 	AnthropicURL    string
@@ -41,10 +44,14 @@ type ReviewResult struct {
 	Duration int64
 }
 
+// scannerMaxBuf bounds a single line in claude CLI's stream-json output.
+// tool_result lines can include large file contents or HTTP bodies.
+const scannerMaxBuf = 10 * 1024 * 1024
+
 func RunReview(ctx context.Context, workDir, prompt string, skillDir string, env Env) (*ReviewResult, error) {
-	cmd := BuildCmd(ctx, prompt, skillDir, env.ClaudeModel, env.MaxTurns)
+	cmd := BuildCmd(ctx, skillDir, env.ClaudeModel, env.MaxTurns)
 	cmd.Dir = workDir
-	cmd.Stdin = nil
+	cmd.Stdin = strings.NewReader(prompt)
 	cmd.Env = buildEnviron(env)
 
 	stdout, err := cmd.StdoutPipe()
@@ -67,14 +74,19 @@ func RunReview(ctx context.Context, workDir, prompt string, skillDir string, env
 	go func() {
 		defer close(stderrDone)
 		scanner := bufio.NewScanner(stderr)
+		scanner.Buffer(make([]byte, 64*1024), scannerMaxBuf)
 		for scanner.Scan() {
 			log.Printf("[claude stderr] %s", scanner.Text())
+		}
+		if err := scanner.Err(); err != nil {
+			log.Printf("[claude stderr scanner] %v", err)
 		}
 	}()
 
 	// Stream stdout (JSON lines)
 	result := &ReviewResult{}
 	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), scannerMaxBuf)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
@@ -123,6 +135,9 @@ func RunReview(ctx context.Context, workDir, prompt string, skillDir string, env
 			log.Printf("[claude] Completed in %dms, cost $%.4f", result.Duration, result.CostUSD)
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("[claude stdout scanner] %v", err)
+	}
 
 	if err := cmd.Wait(); err != nil {
 		result.ExitCode = cmd.ProcessState.ExitCode()
@@ -140,14 +155,14 @@ func RunReview(ctx context.Context, workDir, prompt string, skillDir string, env
 	return result, nil
 }
 
-func BuildCmd(ctx context.Context, prompt, skillDir, model string, maxTurns int) *exec.Cmd {
+// BuildCmd constructs the claude CLI invocation. The prompt itself is fed via
+// stdin to avoid ARG_MAX limits on large diffs; the caller must set cmd.Stdin.
+func BuildCmd(ctx context.Context, skillDir, model string, maxTurns int) *exec.Cmd {
 	args := []string{
-		"-p", prompt,
+		"-p", "",
 		"--output-format", "stream-json",
 		"--verbose",
 		"--allowedTools", "Bash",
-		"--allowedTools", "Bash(curl *)",
-		"--allowedTools", "Bash(bash *)",
 	}
 	if skillDir != "" {
 		skillFile := filepath.Join(skillDir, "SKILL.md")
@@ -157,7 +172,7 @@ func BuildCmd(ctx context.Context, prompt, skillDir, model string, maxTurns int)
 		args = append(args, "--model", model)
 	}
 	if maxTurns > 0 {
-		args = append(args, "--max-turns", fmt.Sprintf("%d", maxTurns))
+		args = append(args, "--max-turns", strconv.Itoa(maxTurns))
 	}
 	return exec.CommandContext(ctx, "claude", args...)
 }
@@ -190,7 +205,7 @@ func buildEnviron(env Env) []string {
 			"GITHUB_REPO="+env.GitHubRepo,
 			fmt.Sprintf("GITHUB_PULL_NUMBER=%d", env.GitHubPullNumber),
 			"GITHUB_SHA="+env.GitHubHeadSHA,
-			"GITHUB_TOKEN="+env.GitLabToken,
+			"GITHUB_TOKEN="+env.GitHubToken,
 			"GITHUB_API_URL="+apiURL,
 		)
 	} else {
