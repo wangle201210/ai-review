@@ -6,16 +6,17 @@ COPY . .
 RUN CGO_ENABLED=0 go build -o /ai-review ./cmd/ai-review
 
 FROM node:20-slim
+ARG CLAUDE_CODE_VERSION=latest
 RUN apt-get update && apt-get install -y --no-install-recommends git curl jq ca-certificates \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ]; then \
-      NATIVE_PKG="@anthropic-ai/claude-code-linux-arm64@2.1.118"; \
+      NATIVE_PKG="@anthropic-ai/claude-code-linux-arm64@${CLAUDE_CODE_VERSION}"; \
     else \
-      NATIVE_PKG="@anthropic-ai/claude-code-linux-x64@2.1.118"; \
+      NATIVE_PKG="@anthropic-ai/claude-code-linux-x64@${CLAUDE_CODE_VERSION}"; \
     fi && \
-    npm install -g @anthropic-ai/claude-code@2.1.118 $NATIVE_PKG
+    npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} $NATIVE_PKG
 COPY --from=builder /ai-review /usr/local/bin/ai-review
 COPY --from=builder /app/conf /app/conf
 WORKDIR /app
