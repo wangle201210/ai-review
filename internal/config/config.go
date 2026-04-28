@@ -42,23 +42,16 @@ type VCSPipeline struct {
 }
 
 type VCSHTTPConfig struct {
-	APIURL   string `yaml:"api_url"  json:"api_url"`
+	APIURL   string `yaml:"api_url"   json:"api_url"`
 	APIToken string `yaml:"api_token" json:"api_token"`
-	Timeout  int    `yaml:"timeout"  json:"timeout"`
 }
 
 type AgentConfig struct {
-	Enabled              bool `yaml:"enabled"                json:"enabled"`
-	MaxIterations        int  `yaml:"max_iterations"         json:"max_iterations"`
-	MaxTotalContextChars int  `yaml:"max_total_context_chars" json:"max_total_context_chars"`
-	CommandTimeout       int  `yaml:"command_timeout"        json:"command_timeout"`
+	MaxIterations int `yaml:"max_iterations" json:"max_iterations"`
 }
 
 type ReviewConfig struct {
-	DryRun  bool     `yaml:"dry_run"        json:"dry_run"`
-	Ignore  []string `yaml:"ignore_changes" json:"ignore_changes"`
-	Allow   []string `yaml:"allow_changes"  json:"allow_changes"`
-	Mode    string   `yaml:"mode"           json:"mode"`
+	DryRun bool `yaml:"dry_run" json:"dry_run"`
 }
 
 var varRe = regexp.MustCompile(`\$\{([^}]+)\}`)
@@ -82,12 +75,7 @@ func Load() (*Config, error) {
 			Timeout:     120,
 		},
 		Agent: AgentConfig{
-			MaxIterations:        25,
-			MaxTotalContextChars: 40000,
-			CommandTimeout:       10,
-		},
-		Review: ReviewConfig{
-			Mode: "ONLY_ADDED",
+			MaxIterations: 25,
 		},
 	}
 
@@ -143,26 +131,26 @@ func applyEnvOverrides(cfg *Config) {
 	}
 
 	setters := map[string]func(string){
-		"LLM__MODEL":                func(v string) { cfg.LLM.Model = v },
-		"LLM__MAX_TOKENS":           func(v string) { cfg.LLM.MaxTokens, _ = strconv.Atoi(v) },
-		"LLM__TEMPERATURE":          func(v string) { cfg.LLM.Temperature, _ = strconv.ParseFloat(v, 64) },
-		"LLM__API_URL":              func(v string) { cfg.LLM.APIURL = v },
-		"LLM__APITOKEN":             func(v string) { cfg.LLM.APIToken = v },
-		"LLM__API_TOKEN":            func(v string) { cfg.LLM.APIToken = v },
-		"LLM__HTTP_CLIENT__API_URL": func(v string) { cfg.LLM.APIURL = v },
-		"LLM__HTTP_CLIENT__API_TOKEN": func(v string) { cfg.LLM.APIToken = v },
-		"ANTHROPIC_API_KEY":         func(v string) { if cfg.LLM.APIToken == "" { cfg.LLM.APIToken = v } },
-		"VCS__PROVIDER":             func(v string) { cfg.VCS.Provider = v },
+		"LLM__MODEL":       func(v string) { cfg.LLM.Model = v },
+		"LLM__MAX_TOKENS":  func(v string) { cfg.LLM.MaxTokens, _ = strconv.Atoi(v) },
+		"LLM__TEMPERATURE": func(v string) { cfg.LLM.Temperature, _ = strconv.ParseFloat(v, 64) },
+		"LLM__API_URL":     func(v string) { cfg.LLM.APIURL = v },
+		"LLM__API_TOKEN":   func(v string) { cfg.LLM.APIToken = v },
+		"ANTHROPIC_API_KEY": func(v string) {
+			if cfg.LLM.APIToken == "" {
+				cfg.LLM.APIToken = v
+			}
+		},
+		"VCS__PROVIDER":                   func(v string) { cfg.VCS.Provider = v },
 		"VCS__PIPELINE__PROJECT_ID":       func(v string) { cfg.VCS.Pipeline.ProjectID = v },
 		"VCS__PIPELINE__MERGE_REQUEST_ID": func(v string) { cfg.VCS.Pipeline.MergeRequestID = v },
 		"VCS__PIPELINE__OWNER":            func(v string) { cfg.VCS.Pipeline.Owner = v },
 		"VCS__PIPELINE__REPO":             func(v string) { cfg.VCS.Pipeline.Repo = v },
 		"VCS__PIPELINE__PULL_NUMBER":      func(v string) { cfg.VCS.Pipeline.PullNumber, _ = strconv.Atoi(v) },
-		"VCS__HTTP_CLIENT__API_URL":   func(v string) { cfg.VCS.HTTP.APIURL = v },
-		"VCS__HTTP_CLIENT__API_TOKEN": func(v string) { cfg.VCS.HTTP.APIToken = v },
-		"AGENT__ENABLED":              func(v string) { cfg.Agent.Enabled = v == "true" || v == "1" },
-		"AGENT__MAX_ITERATIONS":       func(v string) { cfg.Agent.MaxIterations, _ = strconv.Atoi(v) },
-		"REVIEW__DRY_RUN":            func(v string) { cfg.Review.DryRun = v == "true" || v == "1" },
+		"VCS__HTTP_CLIENT__API_URL":       func(v string) { cfg.VCS.HTTP.APIURL = v },
+		"VCS__HTTP_CLIENT__API_TOKEN":     func(v string) { cfg.VCS.HTTP.APIToken = v },
+		"AGENT__MAX_ITERATIONS":           func(v string) { cfg.Agent.MaxIterations, _ = strconv.Atoi(v) },
+		"REVIEW__DRY_RUN":                 func(v string) { cfg.Review.DryRun = v == "true" || v == "1" },
 	}
 
 	for key, val := range envMap {

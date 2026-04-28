@@ -20,7 +20,6 @@ type Client struct {
 	repo       string
 	pullNumber int
 	http       *http.Client
-	headSHA    string
 }
 
 func New(apiURL, apiToken, owner, repo string, pullNumber int) *Client {
@@ -70,8 +69,8 @@ type prResponse struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
 	Base  struct {
-		SHA  string `json:"sha"`
-		Ref  string `json:"ref"`
+		SHA string `json:"sha"`
+		Ref string `json:"ref"`
 	} `json:"base"`
 	Head struct {
 		SHA  string `json:"sha"`
@@ -97,8 +96,6 @@ func (c *Client) GetReviewInfo(ctx context.Context) (*vcs.ReviewInfo, error) {
 		return nil, fmt.Errorf("parse PR response: %w", err)
 	}
 
-	c.headSHA = pr.Head.SHA
-
 	return &vcs.ReviewInfo{
 		ID:           strconv.Itoa(c.pullNumber),
 		Title:        pr.Title,
@@ -109,29 +106,6 @@ func (c *Client) GetReviewInfo(ctx context.Context) (*vcs.ReviewInfo, error) {
 		SourceBranch: pr.Head.Ref,
 		TargetBranch: pr.Base.Ref,
 	}, nil
-}
-
-func (c *Client) PostInlineComment(ctx context.Context, file string, line int, message string) error {
-	if c.headSHA == "" {
-		return fmt.Errorf("head SHA not available (call GetReviewInfo first)")
-	}
-
-	payload := map[string]interface{}{
-		"body":      message,
-		"path":      file,
-		"line":      line,
-		"side":      "RIGHT",
-		"commit_id": c.headSHA,
-	}
-	u := c.api(fmt.Sprintf("pulls/%d/comments", c.pullNumber))
-	body, status, err := c.doRequest(ctx, http.MethodPost, u, payload)
-	if err != nil {
-		return fmt.Errorf("post inline comment: %w", err)
-	}
-	if status != 201 {
-		return fmt.Errorf("post inline comment: HTTP %d: %s", status, string(body))
-	}
-	return nil
 }
 
 func (c *Client) PostGeneralComment(ctx context.Context, message string) error {

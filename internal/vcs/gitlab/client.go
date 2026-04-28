@@ -21,7 +21,6 @@ type Client struct {
 	projectID string
 	mrIID     string
 	http      *http.Client
-	diffRefs  *diffRefs
 }
 
 type diffRefs struct {
@@ -31,14 +30,14 @@ type diffRefs struct {
 }
 
 type mrResponse struct {
-	ID          int    `json:"id"`
-	IID         int    `json:"iid"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	SourceBranch string `json:"source_branch"`
-	TargetBranch string `json:"target_branch"`
-	DiffRefs    *diffRefs `json:"diff_refs"`
-	Author      struct {
+	ID           int       `json:"id"`
+	IID          int       `json:"iid"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	SourceBranch string    `json:"source_branch"`
+	TargetBranch string    `json:"target_branch"`
+	DiffRefs     *diffRefs `json:"diff_refs"`
+	Author       struct {
 		Name string `json:"name"`
 	} `json:"author"`
 }
@@ -109,56 +108,12 @@ func (c *Client) GetReviewInfo(ctx context.Context) (*vcs.ReviewInfo, error) {
 	}
 
 	if mr.DiffRefs != nil {
-		c.diffRefs = mr.DiffRefs
 		info.BaseSHA = mr.DiffRefs.BaseSHA
 		info.HeadSHA = mr.DiffRefs.HeadSHA
 		info.StartSHA = mr.DiffRefs.StartSHA
 	}
 
 	return info, nil
-}
-
-func (c *Client) ensureDiffRefs(ctx context.Context) error {
-	if c.diffRefs != nil {
-		return nil
-	}
-	_, err := c.GetReviewInfo(ctx)
-	if err != nil {
-		return fmt.Errorf("fetch diff_refs: %w", err)
-	}
-	if c.diffRefs == nil {
-		return fmt.Errorf("MR has no diff_refs (may need to be updated)")
-	}
-	return nil
-}
-
-func (c *Client) PostInlineComment(ctx context.Context, file string, line int, message string) error {
-	if err := c.ensureDiffRefs(ctx); err != nil {
-		return err
-	}
-
-	payload := map[string]interface{}{
-		"body": message,
-		"position": map[string]interface{}{
-			"base_sha":      c.diffRefs.BaseSHA,
-			"head_sha":      c.diffRefs.HeadSHA,
-			"start_sha":     c.diffRefs.StartSHA,
-			"position_type": "text",
-			"new_path":      file,
-			"old_path":      file,
-			"new_line":      line,
-		},
-	}
-
-	u := c.api(fmt.Sprintf("merge_requests/%s/discussions", c.mrIID))
-	body, status, err := c.doRequest(ctx, http.MethodPost, u, payload)
-	if err != nil {
-		return fmt.Errorf("post inline comment: %w", err)
-	}
-	if status != 201 {
-		return fmt.Errorf("post inline comment: HTTP %d: %s", status, string(body))
-	}
-	return nil
 }
 
 func (c *Client) PostGeneralComment(ctx context.Context, message string) error {

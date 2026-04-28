@@ -17,6 +17,5 @@ type ReviewInfo struct {
 type Client interface {
 	GetReviewInfo(ctx context.Context) (*ReviewInfo, error)
 	GetDiff(ctx context.Context) (string, error)
-	PostInlineComment(ctx context.Context, file string, line int, message string) error
 	PostGeneralComment(ctx context.Context, message string) error
 }
