@@ -96,6 +96,11 @@ git push --set-upstream origin HEAD \
 Build the title and description from verified findings. Escape description
 newlines as `\n`; Git push options cannot contain literal newlines. Do not paste
 raw production logs or sensitive identifiers into the merge request.
+Write the PR/MR description and any follow-up comments in Chinese whenever
+practical. Keep code symbols, branch names, commands, identifiers, and quoted
+error text unchanged. Follow a repository-mandated language or template when
+one exists. Apply this language preference only to PR/MR text; for source-code
+comments, follow the repository's existing style and the code context.
 
 ### Create an MR for an existing remote branch
 
