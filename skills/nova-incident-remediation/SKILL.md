@@ -19,8 +19,6 @@ that passes the user's message and optional resumed session unchanged.
   stop if work cannot be isolated safely.
 - Keep production log queries read-only. Store results outside repositories and
   never commit logs, credentials, cookies, or tokens.
-- Scale validation to the change risk and follow repository conventions. Avoid
-  running unrelated resource-intensive commands concurrently.
 - Never force-push, rewrite shared history, reset a worktree, or discard
   existing changes.
 
@@ -66,10 +64,8 @@ asking the user to restate information.
    untouched. Fetch only the selected repository.
 3. Change only the causal repository unless cross-repository changes are
    demonstrably required. Keep the patch narrowly scoped.
-4. Add or adjust a focused regression test when practical. Run it first for
-   fast feedback, then broaden validation when the change risk warrants it. If
-   host constraints prevent execution, perform bounded static checks and say
-   exactly what was not run.
+4. Add or adjust a focused regression test when practical. Follow repository
+   conventions when validating the change, and say exactly what was not run.
 5. Review the diff for unrelated files, generated output, secrets, and debug
    logging before committing.
 6. Use the repository's configured Git identity. If none exists, stop before
