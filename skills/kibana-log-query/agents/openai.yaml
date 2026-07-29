@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kibana Log Query"
+  short_description: "Query and analyze Kibana game logs"
+  default_prompt: "Use $kibana-log-query to query Kibana logs and reconstruct an incident timeline."

@@ -11,12 +11,19 @@ HTTP 层只处理 JSON、可选鉴权、请求大小、并发、超时、Codex �
 `session_id`。请求中的 `message` 会原样写入 Codex CLI 的标准输入；服务不会解析
 应用、时间、集群或日志，不会查询 Kibana，也不会调用 GitLab API。
 
-告警定位和修复流程由 Codex skill 负责。本项目提供
-[`nova-incident-remediation`](../skills/nova-incident-remediation/SKILL.md)，运行主机
-还需要安装它依赖的 `kibana-log-query` 和 `nova-game-play-code-analysis`：
+告警定位和修复流程由 Codex skill 负责。本项目包含完整的三个 skills：
+[`nova-incident-remediation`](../skills/nova-incident-remediation/SKILL.md) 负责编排，
+[`kibana-log-query`](../skills/kibana-log-query/SKILL.md) 负责查询日志，
+[`nova-game-play-code-analysis`](../skills/nova-game-play-code-analysis/SKILL.md)
+负责准备项目并分析源码。将它们安装到运行 HTTP 服务的同一用户下：
 
 ```bash
-cp -R skills/nova-incident-remediation ~/.codex/skills/
+install -d ~/.codex/skills
+cp -R \
+  skills/kibana-log-query \
+  skills/nova-game-play-code-analysis \
+  skills/nova-incident-remediation \
+  ~/.codex/skills/
 ```
 
 该 skill 让 Codex 查询日志、检查源码、完成最小修复和窄范围验证，再使用已有 SSH
@@ -25,7 +32,7 @@ Git 权限及 GitLab push options 推送分支并创建 MR。这个流程不需�
 
 ## 前置条件
 
-1. 安装 `codex`，并确保服务进程可以在 `PATH` 中找到它。
+1. 安装 `codex`、Node.js 和 `curl`，并确保服务进程可以在 `PATH` 中找到它们。
 2. 使用运行 HTTP 服务的同一个系统用户完成 `codex login`。
 3. 准备一个专用、低权限的系统用户，并只授予目标工作目录所需权限。
 4. 需要 HTTP 鉴权时，生成至少 32 字节的随机 Bearer Token。
