@@ -1,0 +1,4 @@
+interface:
+  display_name: "Nova Incident Remediation"
+  short_description: "Investigate alerts, fix bugs, and open GitLab MRs"
+  default_prompt: "Use $nova-incident-remediation to investigate this production alert, implement a verified fix, and open a GitLab merge request."

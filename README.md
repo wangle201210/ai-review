@@ -2,6 +2,9 @@
 
 AI 驱动的自动化代码审查工具，可嵌入 CI/CD 流水线，自动对 **GitHub Pull Request** 和 **GitLab Merge Request** 进行代码审查。
 
+项目也可以把本机 Codex CLI 暴露为受保护的 HTTP 接口，支持通过
+`session_id` 延续历史会话，并通过 Lark 群机器人触发告警分析、修复和 MR 流程。
+
 ## 效果
 使用claude cli进行审查
 ![review](./docs/review.png)
@@ -152,6 +155,46 @@ AI-Review 采用双层审查架构：
 | `ai-review run` | 完整审查：深度逐行审查 + 摘要审查 |
 | `ai-review run-inline` | 仅深度逐行审查 |
 | `ai-review run-summary` | 仅摘要审查 |
+| `ai-review serve-codex` | 启动 Codex HTTP 服务 |
+| `ai-review serve-lark-codex` | 启动 Lark 到 Codex HTTP 的群机器人适配器 |
+
+## Codex HTTP 服务
+
+HTTP 服务适用于从另一台电脑发送单轮消息，并在需要上下文时携带之前返回的
+`session_id`。服务默认只监听 `127.0.0.1:8787`，推荐通过 SSH 端口转发访问。
+`HTTP__AUTH_TOKEN` 为空时不要求鉴权；对外监听时应始终配置 Token。
+服务只负责把消息原样交给 Codex CLI；日志查询、源码分析、修复和创建 MR 由
+[`nova-incident-remediation`](skills/nova-incident-remediation/SKILL.md) skill 完成。
+
+```bash
+export HTTP__AUTH_TOKEN="$(openssl rand -hex 32)"
+export CODEX__WORK_DIR=/srv/my-project
+
+ai-review serve-codex
+```
+
+新建会话：
+
+```bash
+curl http://127.0.0.1:8787/v1/codex \
+  -H "Authorization: Bearer $HTTP__AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"检查当前项目并指出最重要的问题"}'
+```
+
+继续会话时，在请求中增加服务端之前返回的 `session_id`。完整配置、响应格式、
+Codex CLI 完整输出的 `journalctl` 查看方式、SSH 隧道和安全说明见
+[`docs/codex-http.md`](docs/codex-http.md)。
+
+## Lark Codex 机器人
+
+`serve-lark-codex` 使用 Lark 长连接接收群里的 `@机器人` 回复，把用户消息与被回复
+的告警原文发送到本机 Codex HTTP 服务。它用根消息 ID 保存 Codex `session_id`，
+因此同一线程中的后续要求会延续上下文。服务只有一个 worker，不会并发启动多个
+Codex CLI。
+
+Lark 开发者后台所需事件、权限、环境变量、systemd 配置和群内使用方式见
+[`docs/lark-codex-bot.md`](docs/lark-codex-bot.md)。
 
 ## 配置
 
@@ -222,16 +265,22 @@ ai-review/
 │   └── skills/
 │       ├── github-inline-review/  # GitHub 内联评论技能
 │       └── gitlab-inline-review/  # GitLab 内联评论技能
+├── deploy/systemd/                # Codex/Lark 服务部署单元
 ├── docs/ci/gitlab.yaml            # GitLab CI 示例
 ├── internal/
 │   ├── claude/                    # Claude Code CLI 调用封装
+│   ├── codex/                     # Codex CLI JSONL 调用封装
+│   ├── codexhttp/                 # Codex HTTP API、鉴权和并发控制
 │   ├── config/                    # 配置加载（YAML + 环境变量）
+│   ├── larkbot/                   # Lark 长连接、队列、会话映射与 Codex HTTP 客户端
 │   ├── llm/                       # Anthropic Messages API 客户端
 │   ├── prompt/                    # Prompt 模板管理
 │   ├── review/                    # 审查流程编排
 │   └── vcs/
 │       ├── github/                # GitHub API 客户端
 │       └── gitlab/                # GitLab API 客户端
+├── skills/
+│   └── nova-incident-remediation/ # Codex 告警定位、修复和 MR 编排
 ├── Dockerfile                     # 多阶段构建（Go + Node/Claude CLI）
 └── .github/workflows/
     ├── ai-review.yaml             # GitHub Actions 审查工作流
@@ -245,8 +294,10 @@ ai-review/
 | 语言 | Go 1.24 |
 | CLI 框架 | [cobra](https://github.com/spf13/cobra) |
 | AI（深度审查） | [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) |
+| Codex HTTP 服务 | Codex CLI 非交互模式 |
+| Lark 机器人 | Lark OpenAPI Go SDK 长连接 |
 | AI（摘要审查） | [Anthropic Messages API](https://docs.anthropic.com/en/api/messages) |
-| 运行时 | Node.js 20 + Claude Code CLI |
+| 运行时 | Node.js 20 + Claude Code CLI + Codex CLI |
 | 容器 | Docker（支持 amd64 / arm64） |
 
 ## License

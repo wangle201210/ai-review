@@ -1,0 +1,4 @@
+interface:
+  display_name: "Nova Game Play Code Analysis"
+  short_description: "Inspect Nova game code from incident evidence"
+  default_prompt: "Use $nova-game-play-code-analysis to inspect the relevant Nova project and branch for this incident."

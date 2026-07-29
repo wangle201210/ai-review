@@ -21,12 +21,14 @@ import (
 func main() {
 	rootCmd := &cobra.Command{
 		Use:   "ai-review",
-		Short: "AI-powered code review tool using Claude Code CLI",
+		Short: "AI-powered code review tool and Codex HTTP gateway",
 	}
 
 	rootCmd.AddCommand(runCmd())
 	rootCmd.AddCommand(runInlineCmd())
 	rootCmd.AddCommand(runSummaryCmd())
+	rootCmd.AddCommand(serveCodexCmd())
+	rootCmd.AddCommand(serveLarkCodexCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
