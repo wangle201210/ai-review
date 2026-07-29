@@ -197,6 +197,24 @@ Codex CLI 完整输出的 `journalctl` 查看方式、SSH 隧道和安全说明�
 因此同一线程中的后续要求会延续上下文。服务只有一个 worker，不会并发启动多个
 Codex CLI。
 
+### Codex session 规则
+
+Lark 会话映射键为 `<chat_id>:<thread_root>`。`thread_root` 优先使用 Lark 的
+`root_id`，没有时依次回退到 `parent_id` 和当前消息 ID。当
+`LARK__REQUIRE_REPLY=true`（当前服务器配置）时，顶层 `@机器人` 不会调用 Codex，
+必须先回复一条告警或日志消息。
+
+- 同一群、同一根消息下第一次调用时，机器人向 Codex HTTP 发送空
+  `session_id`。Codex CLI 在 `thread.started` 事件中生成新 ID；只有该 turn
+  成功返回 `session_id` 和最终消息后，机器人才能持久化这条 Lark 线程映射。
+- 同一群、同一根消息下的后续调用会携带已保存的 `session_id`，通过
+  `codex exec resume` 延续上下文。不同用户在该线程内会共享同一 session。
+- 不同根消息或不同群使用不同的映射键，即使消息内容相同也会创建新 session。
+- 首次 turn 失败时不会建立新映射；如果该线程已有旧映射，失败也不会覆盖它。
+  Lark 重复投递同一个消息 ID 会被去重，不会产生额外的 Codex turn。
+- 映射保存在 `LARK__STATE_PATH`，服务重启后仍可复用。目前 session 映射不会自动
+  过期；用于消息去重的已处理消息 ID 会保留 7 天。
+
 Lark 开发者后台所需事件、权限、环境变量、systemd 配置和群内使用方式见
 [`docs/lark-codex-bot.md`](docs/lark-codex-bot.md)。
 
