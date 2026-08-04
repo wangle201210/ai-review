@@ -2,3 +2,5 @@
 /ai-review-linux-amd64
 .idea/
 *.exe
+__pycache__/
+*.py[cod]

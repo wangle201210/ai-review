@@ -169,6 +169,10 @@ HTTP 服务适用于从另一台电脑发送单轮消息，并在需要上下文
 [`kibana-log-query`](skills/kibana-log-query/SKILL.md) 和
 [`nova-game-play-code-analysis`](skills/nova-game-play-code-analysis/SKILL.md)，安装方式见
 [`docs/codex-http.md`](docs/codex-http.md)。
+仓库还包含独立的
+[`jenkins-trigger-build`](skills/jenkins-trigger-build/SKILL.md)，用于在用户明确要求
+build 或 deploy 时先预览、再触发 Nova Jenkins 构建。完成事故修复或创建 MR 不会
+自动触发 Jenkins。
 
 ```bash
 export HTTP__AUTH_TOKEN="$(openssl rand -hex 32)"
@@ -303,6 +307,7 @@ ai-review/
 │       └── gitlab/                # GitLab API 客户端
 ├── skills/
 │   ├── kibana-log-query/          # Kibana 日志查询和时间线重建
+│   ├── jenkins-trigger-build/     # Jenkins 构建预览与触发
 │   ├── nova-game-play-code-analysis/ # Nova 项目准备和源码分析
 │   └── nova-incident-remediation/ # 告警定位、修复和 MR 编排
 ├── Dockerfile                     # 多阶段构建（Go + Node/Claude CLI）

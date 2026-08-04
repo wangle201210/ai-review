@@ -1,0 +1,4 @@
+interface:
+  display_name: "Jenkins Build Trigger"
+  short_description: "Preview and trigger Nova Jenkins builds safely"
+  default_prompt: "Use $jenkins-trigger-build to preview and trigger a Jenkins build for a Nova game-play project."
