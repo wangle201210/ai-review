@@ -3,6 +3,8 @@ package codex
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -228,6 +230,37 @@ printf '%s\n' \
 		if !strings.Contains(logs.String(), line) {
 			t.Fatalf("logs do not contain input line %q:\n%s", line, logs.String())
 		}
+	}
+}
+
+func TestRunnerTimeoutPreservesStartedSession(t *testing.T) {
+	tempDir := t.TempDir()
+	fakeCodex := filepath.Join(tempDir, "codex")
+	script := `#!/bin/sh
+printf '%s\n' '{"type":"thread.started","thread_id":"019abcde-1234-7000-8000-0123456789ab"}'
+sleep 5
+`
+	if err := os.WriteFile(fakeCodex, []byte(script), 0o700); err != nil {
+		t.Fatalf("write fake codex: %v", err)
+	}
+
+	runner, err := NewRunner(RunnerConfig{
+		Binary:  fakeCodex,
+		WorkDir: tempDir,
+		Sandbox: "read-only",
+		Timeout: 100 * time.Millisecond,
+		Logger:  log.New(io.Discard, "", 0),
+	})
+	if err != nil {
+		t.Fatalf("NewRunner() error = %v", err)
+	}
+
+	result, err := runner.Execute(context.Background(), Request{Message: "continue"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Execute() error = %v, want deadline exceeded", err)
+	}
+	if result == nil || result.SessionID != "019abcde-1234-7000-8000-0123456789ab" {
+		t.Fatalf("Execute() result = %#v, want preserved session", result)
 	}
 }
 

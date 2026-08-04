@@ -134,7 +134,22 @@ Content-Type: application/json
 
 同一个 `session_id` 不能同时处理两个请求，发生冲突时返回 `409
 session_busy`。达到全局并发上限时返回 `429 server_busy`。
-客户端断开或 turn 超时时，服务会终止本次 Codex 调用及其子进程。
+客户端断开或 turn 超时时，服务会终止本次 Codex 调用及其子进程。如果新 turn 在
+超时前已经产生 `thread.started` 事件，`504 codex_timeout` 会附带可恢复的
+`session_id`：
+
+```json
+{
+  "error": {
+    "code": "codex_timeout",
+    "message": "Codex request timed out"
+  },
+  "session_id": "019abcde-1234-7000-8000-0123456789ab"
+}
+```
+
+服务不会自动重跑超时任务。调用方应保存这个 ID，并仅在用户明确发起下一条消息时
+将它作为 `session_id` 传回。若超时发生在 session 创建之前，响应不包含该字段。
 
 ## 查看 Codex 输出
 

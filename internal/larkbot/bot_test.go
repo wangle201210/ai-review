@@ -40,9 +40,10 @@ func (g *fakeGateway) replyCount() int {
 }
 
 type fakeTurner struct {
-	mu       sync.Mutex
-	requests []TurnRequest
-	busyOnce bool
+	mu          sync.Mutex
+	requests    []TurnRequest
+	busyOnce    bool
+	timeoutOnce bool
 }
 
 func (t *fakeTurner) Turn(_ context.Context, request TurnRequest) (*TurnResponse, error) {
@@ -52,6 +53,15 @@ func (t *fakeTurner) Turn(_ context.Context, request TurnRequest) (*TurnResponse
 	if t.busyOnce {
 		t.busyOnce = false
 		return nil, &BusyError{StatusCode: 429, Code: "server_busy"}
+	}
+	if t.timeoutOnce {
+		t.timeoutOnce = false
+		return nil, &TurnError{
+			StatusCode: 504,
+			Code:       "codex_timeout",
+			Message:    "Codex request timed out",
+			SessionID:  "session-timeout",
+		}
 	}
 	sessionID := request.SessionID
 	if sessionID == "" {
@@ -174,6 +184,51 @@ func TestBotRetriesWhenCodexIsBusy(t *testing.T) {
 	waitForReplies(t, gateway, 2)
 	if got := len(turner.snapshot()); got != 2 {
 		t.Fatalf("Codex request count = %d, want 2", got)
+	}
+}
+
+func TestBotPreservesFirstSessionOnTimeoutAndResumesAfterNewMessage(t *testing.T) {
+	gateway := &fakeGateway{
+		parents: map[string]string{"alert-1": "panic"},
+		notify:  make(chan struct{}, 8),
+	}
+	turner := &fakeTurner{timeoutOnce: true}
+	bot, store := newTestBot(t, gateway, turner, true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go bot.Run(ctx)
+
+	first := IncomingMessage{
+		MessageID: "message-1",
+		ChatID:    "chat-1",
+		ChatType:  "group",
+		ParentID:  "alert-1",
+		RootID:    "alert-1",
+		Text:      "修复问题",
+	}
+	if err := bot.Handle(ctx, first); err != nil {
+		t.Fatalf("Handle(first) error = %v", err)
+	}
+	waitForReplies(t, gateway, 2)
+	if got := store.Session("chat-1:alert-1"); got != "session-timeout" {
+		t.Fatalf("stored session = %q, want session-timeout", got)
+	}
+
+	second := first
+	second.MessageID = "message-2"
+	second.Text = "继续"
+	if err := bot.Handle(ctx, second); err != nil {
+		t.Fatalf("Handle(second) error = %v", err)
+	}
+	waitForReplies(t, gateway, 4)
+
+	requests := turner.snapshot()
+	if len(requests) != 2 {
+		t.Fatalf("Codex request count = %d, want 2", len(requests))
+	}
+	if requests[0].SessionID != "" || requests[1].SessionID != "session-timeout" {
+		t.Fatalf("Codex sessions = %#v", requests)
 	}
 }
 

@@ -12,10 +12,11 @@ import (
 )
 
 const (
-	defaultInstruction  = "请分析并处理被回复的异常。"
-	queueBusyMessage    = "当前任务队列已满，请稍后重新 @ 机器人。"
-	requireReplyMessage = "请先回复需要分析的告警或日志消息，再 @ 机器人发送处理要求。"
-	acceptedMessage     = "已收到，开始分析。完成后会在此回复。"
+	defaultInstruction   = "请分析并处理被回复的异常。"
+	queueBusyMessage     = "当前任务队列已满，请稍后重新 @ 机器人。"
+	requireReplyMessage  = "请先回复需要分析的告警或日志消息，再 @ 机器人发送处理要求。"
+	acceptedMessage      = "已收到，开始分析。完成后会在此回复。"
+	timeoutResumeMessage = "Codex 本次执行已超时，但会话已保留。请继续回复同一条告警所在的线程，重新 @ 机器人并发送一条新消息，例如“继续”，系统将从原会话继续处理。"
 )
 
 type IncomingMessage struct {
@@ -160,6 +161,16 @@ func (b *Bot) process(ctx context.Context, message IncomingMessage) {
 	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
+			return
+		}
+		var turnErr *TurnError
+		if errors.As(err, &turnErr) && turnErr.Code == "codex_timeout" && turnErr.SessionID != "" {
+			b.config.Logger.Printf(
+				"[lark-codex] Codex request timed out; session preserved message_id=%q session_id=%q",
+				message.MessageID,
+				turnErr.SessionID,
+			)
+			b.finishWithReply(ctx, message, timeoutResumeMessage, turnErr.SessionID)
 			return
 		}
 		b.config.Logger.Printf(

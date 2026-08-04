@@ -55,6 +55,17 @@ func (e *BusyError) Error() string {
 	return fmt.Sprintf("Codex HTTP service is busy: status=%d code=%s", e.StatusCode, e.Code)
 }
 
+type TurnError struct {
+	StatusCode int
+	Code       string
+	Message    string
+	SessionID  string
+}
+
+func (e *TurnError) Error() string {
+	return fmt.Sprintf("Codex HTTP service returned %d (%s): %s", e.StatusCode, e.Code, e.Message)
+}
+
 func NewHTTPClient(endpoint, authToken string, timeout time.Duration) (*HTTPClient, error) {
 	parsed, err := url.Parse(endpoint)
 	if err != nil {
@@ -107,18 +118,23 @@ func (c *HTTPClient) Turn(ctx context.Context, request TurnRequest) (*TurnRespon
 	}
 
 	if response.StatusCode != http.StatusOK {
-		code, message := decodeCodexError(body)
+		codexError := decodeCodexError(body)
 		if response.StatusCode == http.StatusTooManyRequests || response.StatusCode == http.StatusConflict {
 			return nil, &BusyError{
 				StatusCode: response.StatusCode,
-				Code:       code,
+				Code:       codexError.Code,
 				RetryAfter: parseRetryAfter(response.Header.Get("Retry-After")),
 			}
 		}
-		if message == "" {
-			message = http.StatusText(response.StatusCode)
+		if codexError.Message == "" {
+			codexError.Message = http.StatusText(response.StatusCode)
 		}
-		return nil, fmt.Errorf("Codex HTTP service returned %d (%s): %s", response.StatusCode, code, message)
+		return nil, &TurnError{
+			StatusCode: response.StatusCode,
+			Code:       codexError.Code,
+			Message:    codexError.Message,
+			SessionID:  codexError.SessionID,
+		}
 	}
 
 	var result TurnResponse
@@ -167,17 +183,22 @@ func marshalTurnRequest(request TurnRequest) ([]byte, error) {
 	return best, nil
 }
 
-func decodeCodexError(body []byte) (string, string) {
+func decodeCodexError(body []byte) TurnError {
 	var envelope struct {
-		Error struct {
+		SessionID string `json:"session_id"`
+		Error     struct {
 			Code    string `json:"code"`
 			Message string `json:"message"`
 		} `json:"error"`
 	}
 	if json.Unmarshal(body, &envelope) != nil {
-		return "", ""
+		return TurnError{}
 	}
-	return envelope.Error.Code, envelope.Error.Message
+	return TurnError{
+		Code:      envelope.Error.Code,
+		Message:   envelope.Error.Message,
+		SessionID: envelope.SessionID,
+	}
 }
 
 func parseRetryAfter(value string) time.Duration {

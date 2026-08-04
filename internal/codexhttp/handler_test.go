@@ -80,6 +80,25 @@ func TestHandlerAllowsRequestsWithoutConfiguredToken(t *testing.T) {
 	}
 }
 
+func TestHandlerTimeoutReturnsPreservedSession(t *testing.T) {
+	handler := newTestHandler(t, executorFunc(func(_ context.Context, _ codex.Request) (*codex.Result, error) {
+		return &codex.Result{SessionID: "thread-timeout"}, context.DeadlineExceeded
+	}), 1)
+
+	response := performRequest(handler, `{"message":"fix it"}`, testToken)
+	if response.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+
+	var body errorEnvelope
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Error.Code != "codex_timeout" || body.SessionID != "thread-timeout" {
+		t.Fatalf("response = %#v", body)
+	}
+}
+
 func TestHandlerRejectsShortConfiguredToken(t *testing.T) {
 	_, err := NewHandler(executorFunc(func(_ context.Context, _ codex.Request) (*codex.Result, error) {
 		return nil, nil

@@ -180,7 +180,14 @@ func (r *Runner) Execute(ctx context.Context, request Request) (*Result, error) 
 		return nil, fmt.Errorf("read codex stderr: %w", stderrState.err)
 	}
 	if runCtx.Err() != nil {
-		return nil, runCtx.Err()
+		sessionID := state.sessionID
+		if sessionID == "" {
+			sessionID = request.SessionID
+		}
+		if sessionID == "" {
+			return nil, runCtx.Err()
+		}
+		return &Result{SessionID: sessionID}, runCtx.Err()
 	}
 	if waitErr != nil {
 		detail := strings.TrimSpace(stderrState.output.String())

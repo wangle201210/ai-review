@@ -50,7 +50,8 @@ type turnResponse struct {
 }
 
 type errorEnvelope struct {
-	Error errorResponse `json:"error"`
+	Error     errorResponse `json:"error"`
+	SessionID string        `json:"session_id,omitempty"`
 }
 
 type errorResponse struct {
@@ -138,7 +139,23 @@ func (h *Handler) handleTurn(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			writeError(w, http.StatusGatewayTimeout, "codex_timeout", "Codex request timed out")
+			sessionID := request.SessionID
+			if result != nil && codex.ValidSessionID(result.SessionID) {
+				sessionID = result.SessionID
+			}
+			h.logger.Printf(
+				"[codex-http] request timed out session_id=%q duration=%s session_preserved=%t",
+				sessionID,
+				time.Since(startedAt).Round(time.Millisecond),
+				sessionID != "",
+			)
+			writeErrorWithSession(
+				w,
+				http.StatusGatewayTimeout,
+				"codex_timeout",
+				"Codex request timed out",
+				sessionID,
+			)
 			return
 		}
 		if errors.Is(err, context.Canceled) {
@@ -267,11 +284,16 @@ func (h *Handler) endSession(sessionID string) {
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
+	writeErrorWithSession(w, status, code, message, "")
+}
+
+func writeErrorWithSession(w http.ResponseWriter, status int, code, message, sessionID string) {
 	writeJSON(w, status, errorEnvelope{
 		Error: errorResponse{
 			Code:    code,
 			Message: message,
 		},
+		SessionID: sessionID,
 	})
 }
 

@@ -70,6 +70,30 @@ func TestHTTPClientReturnsBusyError(t *testing.T) {
 	}
 }
 
+func TestHTTPClientReturnsTimeoutSession(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusGatewayTimeout)
+		_, _ = w.Write([]byte(`{"error":{"code":"codex_timeout","message":"Codex request timed out"},"session_id":"session-timeout"}`))
+	}))
+	defer server.Close()
+
+	client, err := NewHTTPClient(server.URL, "", time.Second)
+	if err != nil {
+		t.Fatalf("NewHTTPClient() error = %v", err)
+	}
+	_, err = client.Turn(context.Background(), TurnRequest{Message: "fix it"})
+	var turnErr *TurnError
+	if !errors.As(err, &turnErr) {
+		t.Fatalf("Turn() error = %v, want TurnError", err)
+	}
+	if turnErr.StatusCode != http.StatusGatewayTimeout ||
+		turnErr.Code != "codex_timeout" ||
+		turnErr.SessionID != "session-timeout" {
+		t.Fatalf("TurnError = %#v", turnErr)
+	}
+}
+
 func TestHTTPClientLimitsJSONEncodedRequestSize(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
