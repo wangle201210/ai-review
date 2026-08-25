@@ -9,11 +9,14 @@
 
 HTTP 层只处理 JSON、可选鉴权、请求大小、并发、超时、Codex 进程和
 `session_id`。请求中的 `message` 会原样写入 Codex CLI 的标准输入；服务不会解析
-应用、时间、集群或日志，不会查询 Kibana，也不会调用 GitLab API。
+应用、时间、集群或日志，不会查询 VictoriaLogs，也不会调用 GitLab API。
 
-告警定位和修复流程由 Codex skill 负责。本项目包含四个可部署 skills：
+告警定位和修复流程由 Codex skill 负责。本项目包含五个可部署 skills：
 [`nova-incident-remediation`](../skills/nova-incident-remediation/SKILL.md) 负责编排，
-[`kibana-log-query`](../skills/kibana-log-query/SKILL.md) 负责查询日志，
+[`nova-victorialogs-query`](../skills/nova-victorialogs-query/SKILL.md) 负责 Nova
+环境解析和日志查询约定，
+[`victorialogs-query`](../skills/victorialogs-query/SKILL.md) 提供通用 LogsQL 和
+VictoriaLogs HTTP API 能力，
 [`nova-game-play-code-analysis`](../skills/nova-game-play-code-analysis/SKILL.md)
 负责准备项目并分析源码，
 [`jenkins-trigger-build`](../skills/jenkins-trigger-build/SKILL.md) 负责预览并触发
@@ -21,13 +24,18 @@ Nova Jenkins 构建。将它们安装到运行 HTTP 服务的同一用户下：
 
 ```bash
 install -d ~/.codex/skills
+rm -rf -- ~/.codex/skills/kibana-log-query
 cp -R \
-  skills/kibana-log-query \
   skills/jenkins-trigger-build \
   skills/nova-game-play-code-analysis \
   skills/nova-incident-remediation \
+  skills/nova-victorialogs-query \
+  skills/victorialogs-query \
   ~/.codex/skills/
 ```
+
+从旧版本升级时必须删除上面的 `kibana-log-query` 目录，否则已失效的 Skill 仍会被
+Codex 自动发现。该命令只删除这个明确的旧 Skill 目录。
 
 该 skill 让 Codex 查询日志、检查源码、完成最小修复和窄范围验证，再使用已有 SSH
 Git 权限及 GitLab push options 推送分支并创建 MR。这个流程不需要把
@@ -61,7 +69,7 @@ journal 的访问权限。不要把 token 写入仓库、聊天消息或命令�
 
 ## 前置条件
 
-1. 安装 `codex`、Node.js、Python 3.10+ 和 `curl`，并确保服务进程可以在
+1. 安装 `codex`、Node.js、Python 3.10+、`curl` 和 `jq`，并确保服务进程可以在
    `PATH` 中找到它们。
 2. 使用运行 HTTP 服务的同一个系统用户完成 `codex login`。
 3. 准备一个专用、低权限的系统用户，并只授予目标工作目录所需权限。

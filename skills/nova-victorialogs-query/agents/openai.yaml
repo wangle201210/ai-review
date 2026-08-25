@@ -1,0 +1,4 @@
+interface:
+  display_name: "Nova VictoriaLogs Query"
+  short_description: "Query Nova logs across VictoriaLogs environments"
+  default_prompt: "Use $nova-victorialogs-query to investigate Nova game logs in the 2j environment."

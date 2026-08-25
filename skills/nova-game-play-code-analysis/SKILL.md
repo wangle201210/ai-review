@@ -11,8 +11,8 @@ Use `~/game-play` as the only project root. Treat each project as one direct
 child directory, `~/game-play/<project>`. Do not read, search, modify, or clean
 another project while preparing the requested project.
 
-Do not query Kibana with this skill. Work from evidence supplied by the user or
-from a result produced by `$kibana-log-query`.
+Do not query VictoriaLogs with this skill. Work from evidence supplied by the
+user or from a result produced by `$nova-victorialogs-query`.
 
 Repository acquisition and revision preparation are permitted when needed for
 the requested source analysis. Otherwise prefer read-only inspection. Diagnose
@@ -137,8 +137,8 @@ part of branch preparation.
 
 ## Consume log evidence
 
-When `$kibana-log-query` produced a result file, read that existing file instead
-of rerunning the production query. Preserve millisecond ordering and correlate
+When `$nova-victorialogs-query` produced a result file, read that existing file
+instead of rerunning the log query. Preserve millisecond ordering and correlate
 user, game, round, draw, trace, pod, container, and endpoint identifiers across
 the relevant code paths.
 

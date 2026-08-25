@@ -4,7 +4,7 @@
 消息交给现有 Codex HTTP 服务，再把 Codex 最终结果回复到同一消息线程。
 
 这层只负责 Lark 收发、队列、去重和 `session_id` 映射。它不会解析告警字段，不会
-直接查询 Kibana、修改代码或调用 GitLab。真正的日志分析、修复、验证和创建 MR
+直接查询 VictoriaLogs、修改代码或调用 GitLab。真正的日志分析、修复、验证和创建 MR
 仍由 Codex CLI 及 `$nova-incident-remediation` skill 完成。
 
 ## 消息流程
