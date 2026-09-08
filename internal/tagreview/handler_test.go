@@ -37,6 +37,39 @@ func TestHandlerAcceptsTagCreation(t *testing.T) {
 	}
 }
 
+func TestHandlerAllowsRequestsWithoutConfiguredSecret(t *testing.T) {
+	called := false
+	handler, err := NewHandler(func(_ context.Context, _ Review) (bool, error) {
+		called = true
+		return false, nil
+	}, Config{
+		AllowedHost:      "git.easycodesource.com",
+		AllowedNamespace: "nova/game-play",
+		MaxRequestBytes:  64 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	response := performWebhook(handler, validTagPayload(), "", "Tag Push Hook")
+	if response.Code != http.StatusAccepted || !called {
+		t.Fatalf("status = %d, called = %t, body = %s", response.Code, called, response.Body.String())
+	}
+}
+
+func TestHandlerRejectsShortConfiguredSecret(t *testing.T) {
+	_, err := NewHandler(func(_ context.Context, _ Review) (bool, error) {
+		return false, nil
+	}, Config{
+		Secret:           "short",
+		AllowedHost:      "git.easycodesource.com",
+		AllowedNamespace: "nova/game-play",
+		MaxRequestBytes:  64 * 1024,
+	})
+	if err == nil {
+		t.Fatal("NewHandler() accepted a short configured secret")
+	}
+}
+
 func TestHandlerIgnoresTagDeletion(t *testing.T) {
 	called := false
 	handler := newTestHandler(t, func(_ context.Context, _ Review) (bool, error) {

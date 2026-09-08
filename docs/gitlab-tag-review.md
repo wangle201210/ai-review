@@ -24,7 +24,7 @@ Webhook 只做鉴权、事件解析、范围校验、排队和通知；实际源
 ```ini
 GITLAB_TAG_REVIEW__ENABLED=true
 GITLAB_TAG_REVIEW__LISTEN_ADDR=0.0.0.0:8788
-GITLAB_TAG_REVIEW__SECRET=<至少 32 字节的随机值>
+GITLAB_TAG_REVIEW__SECRET=
 GITLAB_TAG_REVIEW__LARK_CHAT_ID=oc_xxx
 GITLAB_TAG_REVIEW__ALLOWED_HOST=git.easycodesource.com
 GITLAB_TAG_REVIEW__ALLOWED_NAMESPACE=nova/game-play
@@ -35,27 +35,28 @@ GITLAB_TAG_REVIEW__MAX_REQUEST_BYTES=65536
 |---|---:|---|
 | `GITLAB_TAG_REVIEW__ENABLED` | `false` | 是否启用 Tag Webhook HTTP 服务 |
 | `GITLAB_TAG_REVIEW__LISTEN_ADDR` | `127.0.0.1:8788` | Webhook 监听地址 |
-| `GITLAB_TAG_REVIEW__SECRET` | 无 | 必填，GitLab `Secret token`，至少 32 字节 |
+| `GITLAB_TAG_REVIEW__SECRET` | 无 | 可选；非空时校验 GitLab `Secret token`，且至少 32 字节 |
 | `GITLAB_TAG_REVIEW__LARK_CHAT_ID` | 无 | 必填，接收开始状态和审查结果的群 ID |
 | `GITLAB_TAG_REVIEW__ALLOWED_HOST` | `git.easycodesource.com` | 允许的 GitLab 主机 |
 | `GITLAB_TAG_REVIEW__ALLOWED_NAMESPACE` | `nova/game-play` | 允许触发审查的项目命名空间 |
 | `GITLAB_TAG_REVIEW__MAX_REQUEST_BYTES` | `65536` | 最大请求体字节数 |
 
-生成 Webhook Secret：
+留空时 Webhook 不检查 `X-Gitlab-Token`。需要重新启用鉴权时，可生成 Secret：
 
 ```bash
 openssl rand -hex 32
 ```
 
-Secret 只保存在权限为 `0600` 的环境文件和 GitLab Webhook 配置中，不应写入仓库、
-命令行历史或日志。
+非空 Secret 只保存在权限为 `0600` 的环境文件和 GitLab Webhook 配置中，不应写入
+仓库、命令行历史或日志。公网监听且不配置 Secret 时，任何能访问端口的人都可以
+提交格式合法的 Tag 事件并触发 Codex 审查。
 
 ## GitLab Webhook
 
 在项目或 `nova/game-play` Group 的 Webhook 设置中填写：
 
 - URL：`https://<公开域名>/webhooks/gitlab/tag`
-- Secret token：与 `GITLAB_TAG_REVIEW__SECRET` 相同
+- Secret token：`GITLAB_TAG_REVIEW__SECRET` 为空时留空
 - Trigger：只启用 `Tag push events`
 - SSL verification：使用有效 HTTPS 证书时启用
 

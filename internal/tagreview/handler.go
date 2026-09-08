@@ -84,7 +84,7 @@ func NewHandler(enqueue EnqueueFunc, cfg Config) (*Handler, error) {
 	if enqueue == nil {
 		return nil, errors.New("tag review enqueuer is required")
 	}
-	if len(cfg.Secret) < 32 {
+	if cfg.Secret != "" && len(cfg.Secret) < 32 {
 		return nil, errors.New("GitLab tag review webhook secret must be at least 32 bytes")
 	}
 	allowedHost := strings.ToLower(strings.TrimSpace(cfg.AllowedHost))
@@ -117,7 +117,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, response{Status: "rejected", Reason: "method_not_allowed"})
 		return
 	}
-	if !h.authorized(r.Header.Get("X-Gitlab-Token")) {
+	if h.secret != "" && !h.authorized(r.Header.Get("X-Gitlab-Token")) {
 		writeJSON(w, http.StatusUnauthorized, response{Status: "rejected", Reason: "unauthorized"})
 		return
 	}
