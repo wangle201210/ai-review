@@ -11,7 +11,7 @@ HTTP 层只处理 JSON、可选鉴权、请求大小、并发、超时、Codex �
 `session_id`。请求中的 `message` 会原样写入 Codex CLI 的标准输入；服务不会解析
 应用、时间、集群或日志，不会查询 VictoriaLogs，也不会调用 GitLab API。
 
-告警定位和修复流程由 Codex skill 负责。本项目包含五个可部署 skills：
+告警定位、修复和 Tag 审查流程由 Codex skill 负责。本项目包含六个可部署 skills：
 [`nova-incident-remediation`](../skills/nova-incident-remediation/SKILL.md) 负责编排，
 [`nova-victorialogs-query`](../skills/nova-victorialogs-query/SKILL.md) 负责 Nova
 环境解析和日志查询约定，
@@ -19,6 +19,8 @@ HTTP 层只处理 JSON、可选鉴权、请求大小、并发、超时、Codex �
 VictoriaLogs HTTP API 能力，
 [`nova-game-play-code-analysis`](../skills/nova-game-play-code-analysis/SKILL.md)
 负责准备项目并分析源码，
+[`nova-tag-fund-risk-review`](../skills/nova-tag-fund-risk-review/SKILL.md) 负责隔离并
+审查 Tag 对应的完整源码，
 [`jenkins-trigger-build`](../skills/jenkins-trigger-build/SKILL.md) 负责预览并触发
 Nova Jenkins 构建。将它们安装到运行 HTTP 服务的同一用户下：
 
@@ -29,6 +31,7 @@ cp -R \
   skills/jenkins-trigger-build \
   skills/nova-game-play-code-analysis \
   skills/nova-incident-remediation \
+  skills/nova-tag-fund-risk-review \
   skills/nova-victorialogs-query \
   skills/victorialogs-query \
   ~/.codex/skills/

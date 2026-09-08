@@ -75,6 +75,30 @@ func TestLoadLarkEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadGitLabTagReviewEnvironment(t *testing.T) {
+	t.Setenv("GITLAB_TAG_REVIEW__ENABLED", "true")
+	t.Setenv("GITLAB_TAG_REVIEW__LISTEN_ADDR", "0.0.0.0:8788")
+	t.Setenv("GITLAB_TAG_REVIEW__SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("GITLAB_TAG_REVIEW__LARK_CHAT_ID", "oc_review")
+	t.Setenv("GITLAB_TAG_REVIEW__ALLOWED_HOST", "git.example.test")
+	t.Setenv("GITLAB_TAG_REVIEW__ALLOWED_NAMESPACE", "nova/games")
+	t.Setenv("GITLAB_TAG_REVIEW__MAX_REQUEST_BYTES", "8192")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.GitLabTagReview.Enabled ||
+		cfg.GitLabTagReview.ListenAddr != "0.0.0.0:8788" ||
+		cfg.GitLabTagReview.Secret != "0123456789abcdef0123456789abcdef" ||
+		cfg.GitLabTagReview.LarkChatID != "oc_review" ||
+		cfg.GitLabTagReview.AllowedHost != "git.example.test" ||
+		cfg.GitLabTagReview.AllowedNamespace != "nova/games" ||
+		cfg.GitLabTagReview.MaxRequestBytes != 8192 {
+		t.Fatalf("GitLab tag review config = %#v", cfg.GitLabTagReview)
+	}
+}
+
 func TestExplicitEmptyHTTPAuthTokenDisablesAuth(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := os.WriteFile(".ai-review.yaml", []byte("http:\n  auth_token: configured-token\n"), 0o600); err != nil {

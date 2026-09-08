@@ -278,7 +278,9 @@ func codexEnvironment(environ []string) []string {
 		"ANTHROPIC_API_KEY":           {},
 		"GITHUB_TOKEN":                {},
 		"GITLAB_TOKEN":                {},
+		"GITLAB_TAG_REVIEW__SECRET":   {},
 		"HTTP__AUTH_TOKEN":            {},
+		"LARK__APP_SECRET":            {},
 		"LLM__API_TOKEN":              {},
 		"VCS__HTTP_CLIENT__API_TOKEN": {},
 	}

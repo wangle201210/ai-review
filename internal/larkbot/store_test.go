@@ -14,7 +14,7 @@ func TestStorePersistsSessionAndProcessedMessage(t *testing.T) {
 		t.Fatalf("OpenStore() error = %v", err)
 	}
 
-	now := time.Date(2026, 7, 29, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	store.now = func() time.Time { return now }
 	if err := store.Complete("om_message", "oc_chat:om_root", "session-1"); err != nil {
 		t.Fatalf("Complete() error = %v", err)

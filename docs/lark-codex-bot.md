@@ -20,7 +20,8 @@
 下一次调用才会通过 `codex exec resume` 继续原 session。
 
 服务内部只有一个 Codex worker。即使多个群同时发任务，也不会在这台服务器上并发
-启动多个 Codex CLI。队列满时会直接提示用户稍后重试。
+启动多个 Codex CLI。启用 GitLab Tag 审查后，Webhook 任务也使用同一队列。队列满
+时群消息会提示用户稍后重试，Webhook 返回 `429`。
 
 ## Lark 开发者后台
 
@@ -80,6 +81,7 @@ LARK__CODEX_URL=http://127.0.0.1:8787/v1/codex
 LARK__CODEX_AUTH_TOKEN=
 LARK__QUEUE_SIZE=32
 LARK__REQUIRE_REPLY=true
+GITLAB_TAG_REVIEW__ENABLED=false
 ```
 
 服务文件可以直接使用
@@ -133,6 +135,10 @@ systemctl enable --now ai-review-lark-codex.service
 | `LARK__CODEX_TIMEOUT_SECONDS` | `1860` | 等待单个 Codex turn 的超时 |
 | `LARK__BUSY_RETRY_SECONDS` | `5` | Codex 返回 `409/429` 后的重试间隔 |
 | `LARK__MAX_PROMPT_BYTES` | `49152` | 合成提示词的最大字节数 |
+
+GitLab Tag 审查配置见 [`gitlab-tag-review.md`](gitlab-tag-review.md)。目标群由
+`GITLAB_TAG_REVIEW__LARK_CHAT_ID` 独立配置，因此后续可以在不改变日常 Bug 修复群
+的情况下切换到专用审查群。
 
 状态文件以 `0600` 原子写入。已处理的消息 ID 保留 7 天，用于抵御 Lark 重复推送；
 线程到 Codex session 的映射会跨服务重启保留。

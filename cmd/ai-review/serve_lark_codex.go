@@ -2,16 +2,20 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wangle201210/ai-review/internal/config"
 	"github.com/wangle201210/ai-review/internal/larkbot"
+	"github.com/wangle201210/ai-review/internal/tagreview"
 )
 
 func serveLarkCodexCmd() *cobra.Command {
@@ -31,19 +35,20 @@ func serveLarkCodexCmd() *cobra.Command {
 
 func runLarkCodexService(parent context.Context, cfg *config.Config) error {
 	service, err := larkbot.NewService(larkbot.ServiceConfig{
-		AppID:          cfg.Lark.AppID,
-		AppSecret:      cfg.Lark.AppSecret,
-		BaseURL:        cfg.Lark.BaseURL,
-		AllowedChatIDs: cfg.Lark.AllowedChatIDs,
-		StatePath:      cfg.Lark.StatePath,
-		QueueSize:      cfg.Lark.QueueSize,
-		RequireReply:   cfg.Lark.RequireReply,
-		CodexURL:       cfg.Lark.CodexURL,
-		CodexAuthToken: cfg.Lark.CodexAuthToken,
-		CodexTimeout:   time.Duration(cfg.Lark.CodexTimeoutSeconds) * time.Second,
-		BusyRetry:      time.Duration(cfg.Lark.BusyRetrySeconds) * time.Second,
-		MaxPromptBytes: cfg.Lark.MaxPromptBytes,
-		Logger:         log.Default(),
+		AppID:           cfg.Lark.AppID,
+		AppSecret:       cfg.Lark.AppSecret,
+		BaseURL:         cfg.Lark.BaseURL,
+		AllowedChatIDs:  cfg.Lark.AllowedChatIDs,
+		StatePath:       cfg.Lark.StatePath,
+		QueueSize:       cfg.Lark.QueueSize,
+		RequireReply:    cfg.Lark.RequireReply,
+		CodexURL:        cfg.Lark.CodexURL,
+		CodexAuthToken:  cfg.Lark.CodexAuthToken,
+		CodexTimeout:    time.Duration(cfg.Lark.CodexTimeoutSeconds) * time.Second,
+		BusyRetry:       time.Duration(cfg.Lark.BusyRetrySeconds) * time.Second,
+		MaxPromptBytes:  cfg.Lark.MaxPromptBytes,
+		TagReviewChatID: cfg.GitLabTagReview.LarkChatID,
+		Logger:          log.Default(),
 	})
 	if err != nil {
 		return fmt.Errorf("configure Lark Codex service: %w", err)
@@ -60,5 +65,91 @@ func runLarkCodexService(parent context.Context, cfg *config.Config) error {
 		cfg.Lark.RequireReply,
 		len(cfg.Lark.AllowedChatIDs),
 	)
-	return service.Run(ctx)
+	if !cfg.GitLabTagReview.Enabled {
+		return service.Run(ctx)
+	}
+	if strings.TrimSpace(cfg.GitLabTagReview.ListenAddr) == "" {
+		return errors.New("GITLAB_TAG_REVIEW__LISTEN_ADDR is required when tag review is enabled")
+	}
+	if strings.TrimSpace(cfg.GitLabTagReview.LarkChatID) == "" {
+		return errors.New("GITLAB_TAG_REVIEW__LARK_CHAT_ID is required when tag review is enabled")
+	}
+
+	webhookHandler, err := tagreview.NewHandler(service.EnqueueTagReview, tagreview.Config{
+		Secret:           cfg.GitLabTagReview.Secret,
+		AllowedHost:      cfg.GitLabTagReview.AllowedHost,
+		AllowedNamespace: cfg.GitLabTagReview.AllowedNamespace,
+		MaxRequestBytes:  cfg.GitLabTagReview.MaxRequestBytes,
+		Logger:           log.Default(),
+	})
+	if err != nil {
+		return fmt.Errorf("configure GitLab tag review webhook: %w", err)
+	}
+	mux := http.NewServeMux()
+	mux.Handle(tagreview.WebhookPath, webhookHandler)
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{\"status\":\"ok\"}\n"))
+	})
+	webhookServer := &http.Server{
+		Addr:              cfg.GitLabTagReview.ListenAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+
+	serviceErr := make(chan error, 1)
+	go func() {
+		serviceErr <- service.Run(ctx)
+	}()
+	webhookErr := make(chan error, 1)
+	go func() {
+		log.Printf(
+			"[gitlab-tag-review] listening on %s path=%s allowed_namespace=%s lark_chat_id=%s",
+			cfg.GitLabTagReview.ListenAddr,
+			tagreview.WebhookPath,
+			cfg.GitLabTagReview.AllowedNamespace,
+			cfg.GitLabTagReview.LarkChatID,
+		)
+		webhookErr <- webhookServer.ListenAndServe()
+	}()
+
+	shutdownWebhook := func() error {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := webhookServer.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shut down GitLab tag review webhook: %w", err)
+		}
+		return nil
+	}
+
+	select {
+	case err := <-serviceErr:
+		stop()
+		_ = shutdownWebhook()
+		return err
+	case err := <-webhookErr:
+		stop()
+		<-serviceErr
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return fmt.Errorf("serve GitLab tag review webhook: %w", err)
+	case <-ctx.Done():
+		if err := shutdownWebhook(); err != nil {
+			return err
+		}
+		if err := <-serviceErr; err != nil {
+			return err
+		}
+		return nil
+	}
 }

@@ -9,13 +9,33 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/wangle201210/ai-review/internal/tagreview"
 )
+
+type sentMessage struct {
+	chatID   string
+	title    string
+	markdown string
+}
 
 type fakeGateway struct {
 	mu      sync.Mutex
 	parents map[string]string
 	replies []string
+	sends   []sentMessage
 	notify  chan struct{}
+}
+
+func (g *fakeGateway) Send(_ context.Context, chatID, title, markdown string) error {
+	g.mu.Lock()
+	g.sends = append(g.sends, sentMessage{chatID: chatID, title: title, markdown: markdown})
+	g.mu.Unlock()
+	select {
+	case g.notify <- struct{}{}:
+	default:
+	}
+	return nil
 }
 
 func (g *fakeGateway) FetchMessage(_ context.Context, messageID string) (string, error) {
@@ -37,6 +57,12 @@ func (g *fakeGateway) replyCount() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return len(g.replies)
+}
+
+func (g *fakeGateway) sendSnapshot() []sentMessage {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]sentMessage(nil), g.sends...)
 }
 
 type fakeTurner struct {
@@ -232,6 +258,61 @@ func TestBotPreservesFirstSessionOnTimeoutAndResumesAfterNewMessage(t *testing.T
 	}
 }
 
+func TestBotProcessesTagReviewAndDeduplicatesDelivery(t *testing.T) {
+	gateway := &fakeGateway{notify: make(chan struct{}, 8)}
+	turner := &fakeTurner{}
+	bot, store := newTestBot(t, gateway, turner, true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go bot.Run(ctx)
+
+	review := tagreview.Review{
+		ProjectID:   42,
+		ProjectName: "kraken",
+		ProjectPath: "nova/game-play/kraken",
+		ProjectURL:  "https://git.easycodesource.com/nova/game-play/kraken",
+		Tag:         "version/v2.65.5",
+		CommitSHA:   "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7",
+	}
+	duplicate, err := bot.EnqueueTagReview(ctx, review)
+	if err != nil || duplicate {
+		t.Fatalf("EnqueueTagReview() = duplicate %t, error %v", duplicate, err)
+	}
+	waitForSends(t, gateway, 2)
+	waitForProcessed(t, store, review.DedupKey())
+
+	requests := turner.snapshot()
+	if len(requests) != 1 || requests[0].SessionID != "" {
+		t.Fatalf("Codex requests = %#v", requests)
+	}
+	for _, expected := range []string{
+		"$nova-tag-fund-risk-review",
+		"version/v2.65.5",
+		"可能存在的规则漏洞会导致资金损失的",
+		"此次代码分析不需要关注其它问题",
+	} {
+		if !strings.Contains(requests[0].Message, expected) {
+			t.Fatalf("Codex prompt does not contain %q:\n%s", expected, requests[0].Message)
+		}
+	}
+	sends := gateway.sendSnapshot()
+	if sends[0].chatID != "chat-review" || sends[0].title != "Tag 资金风险审查已开始" ||
+		sends[1].title != "Tag 资金风险审查结果" ||
+		!strings.Contains(sends[1].markdown, "Codex result") {
+		t.Fatalf("Lark sends = %#v", sends)
+	}
+
+	duplicate, err = bot.EnqueueTagReview(ctx, review)
+	if err != nil || !duplicate {
+		t.Fatalf("duplicate EnqueueTagReview() = duplicate %t, error %v", duplicate, err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if got := len(turner.snapshot()); got != 1 {
+		t.Fatalf("duplicate triggered Codex; request count = %d", got)
+	}
+}
+
 func TestBuildPromptTruncatesOnUTF8Boundaries(t *testing.T) {
 	prompt := buildPrompt("处理异常", strings.Repeat("日志中文\n", 1000), 1024)
 	if len(prompt) > 1024 {
@@ -252,16 +333,45 @@ func newTestBot(t *testing.T, gateway MessageGateway, turner Turner, requireRepl
 		t.Fatalf("OpenStore() error = %v", err)
 	}
 	bot, err := NewBot(gateway, turner, store, BotConfig{
-		QueueSize:      4,
-		RequireReply:   requireReply,
-		BusyRetry:      time.Millisecond,
-		MaxPromptBytes: 4096,
-		Logger:         log.New(io.Discard, "", 0),
+		QueueSize:       4,
+		RequireReply:    requireReply,
+		BusyRetry:       time.Millisecond,
+		MaxPromptBytes:  4096,
+		TagReviewChatID: "chat-review",
+		Logger:          log.New(io.Discard, "", 0),
 	})
 	if err != nil {
 		t.Fatalf("NewBot() error = %v", err)
 	}
 	return bot, store
+}
+
+func waitForSends(t *testing.T, gateway *fakeGateway, count int) {
+	t.Helper()
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	for len(gateway.sendSnapshot()) < count {
+		select {
+		case <-gateway.notify:
+		case <-deadline.C:
+			t.Fatalf("send count = %d, want %d", len(gateway.sendSnapshot()), count)
+		}
+	}
+}
+
+func waitForProcessed(t *testing.T, store *Store, key string) {
+	t.Helper()
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for !store.Processed(key) {
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatalf("processed key %q was not persisted", key)
+		}
+	}
 }
 
 func waitForReplies(t *testing.T, gateway *fakeGateway, count int) {

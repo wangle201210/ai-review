@@ -12,13 +12,14 @@ import (
 )
 
 type Config struct {
-	LLM    LLMConfig    `yaml:"llm"    json:"llm"`
-	VCS    VCSConfig    `yaml:"vcs"    json:"vcs"`
-	Agent  AgentConfig  `yaml:"agent"  json:"agent"`
-	Review ReviewConfig `yaml:"review" json:"review"`
-	Codex  CodexConfig  `yaml:"codex"  json:"codex"`
-	HTTP   HTTPConfig   `yaml:"http"   json:"http"`
-	Lark   LarkConfig   `yaml:"lark"   json:"lark"`
+	LLM             LLMConfig             `yaml:"llm"    json:"llm"`
+	VCS             VCSConfig             `yaml:"vcs"    json:"vcs"`
+	Agent           AgentConfig           `yaml:"agent"  json:"agent"`
+	Review          ReviewConfig          `yaml:"review" json:"review"`
+	Codex           CodexConfig           `yaml:"codex"  json:"codex"`
+	HTTP            HTTPConfig            `yaml:"http"   json:"http"`
+	Lark            LarkConfig            `yaml:"lark"   json:"lark"`
+	GitLabTagReview GitLabTagReviewConfig `yaml:"gitlab_tag_review" json:"gitlab_tag_review"`
 }
 
 type LLMConfig struct {
@@ -88,6 +89,16 @@ type LarkConfig struct {
 	MaxPromptBytes      int      `yaml:"max_prompt_bytes"      json:"max_prompt_bytes"`
 }
 
+type GitLabTagReviewConfig struct {
+	Enabled          bool   `yaml:"enabled"           json:"enabled"`
+	ListenAddr       string `yaml:"listen_addr"       json:"listen_addr"`
+	Secret           string `yaml:"secret"            json:"secret"`
+	LarkChatID       string `yaml:"lark_chat_id"      json:"lark_chat_id"`
+	AllowedHost      string `yaml:"allowed_host"      json:"allowed_host"`
+	AllowedNamespace string `yaml:"allowed_namespace" json:"allowed_namespace"`
+	MaxRequestBytes  int64  `yaml:"max_request_bytes" json:"max_request_bytes"`
+}
+
 var varRe = regexp.MustCompile(`\$\{([^}]+)\}`)
 
 func expandEnv(s string) string {
@@ -130,6 +141,12 @@ func Load() (*Config, error) {
 			CodexTimeoutSeconds: 1860,
 			BusyRetrySeconds:    5,
 			MaxPromptBytes:      48 * 1024,
+		},
+		GitLabTagReview: GitLabTagReviewConfig{
+			ListenAddr:       "127.0.0.1:8788",
+			AllowedHost:      "git.easycodesource.com",
+			AllowedNamespace: "nova/game-play",
+			MaxRequestBytes:  64 * 1024,
 		},
 	}
 
@@ -236,6 +253,24 @@ func applyEnvOverrides(cfg *Config) {
 		"LARK__MAX_PROMPT_BYTES": func(v string) {
 			cfg.Lark.MaxPromptBytes, _ = strconv.Atoi(v)
 		},
+		"GITLAB_TAG_REVIEW__ENABLED": func(v string) {
+			cfg.GitLabTagReview.Enabled = parseBool(v)
+		},
+		"GITLAB_TAG_REVIEW__LISTEN_ADDR": func(v string) {
+			cfg.GitLabTagReview.ListenAddr = v
+		},
+		"GITLAB_TAG_REVIEW__LARK_CHAT_ID": func(v string) {
+			cfg.GitLabTagReview.LarkChatID = v
+		},
+		"GITLAB_TAG_REVIEW__ALLOWED_HOST": func(v string) {
+			cfg.GitLabTagReview.AllowedHost = v
+		},
+		"GITLAB_TAG_REVIEW__ALLOWED_NAMESPACE": func(v string) {
+			cfg.GitLabTagReview.AllowedNamespace = v
+		},
+		"GITLAB_TAG_REVIEW__MAX_REQUEST_BYTES": func(v string) {
+			cfg.GitLabTagReview.MaxRequestBytes, _ = strconv.ParseInt(v, 10, 64)
+		},
 	}
 
 	for key, val := range envMap {
@@ -255,6 +290,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if value, exists := envMap["LARK__ALLOWED_CHAT_IDS"]; exists {
 		cfg.Lark.AllowedChatIDs = splitCommaSeparated(value)
+	}
+	if value, exists := envMap["GITLAB_TAG_REVIEW__SECRET"]; exists {
+		cfg.GitLabTagReview.Secret = value
 	}
 }
 

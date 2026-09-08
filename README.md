@@ -156,7 +156,7 @@ AI-Review 采用双层审查架构：
 | `ai-review run-inline` | 仅深度逐行审查 |
 | `ai-review run-summary` | 仅摘要审查 |
 | `ai-review serve-codex` | 启动 Codex HTTP 服务 |
-| `ai-review serve-lark-codex` | 启动 Lark 到 Codex HTTP 的群机器人适配器 |
+| `ai-review serve-lark-codex` | 启动 Lark 群机器人及可选的 GitLab Tag 审查 Webhook |
 
 ## Codex HTTP 服务
 
@@ -170,6 +170,8 @@ HTTP 服务适用于从另一台电脑发送单轮消息，并在需要上下文
 [`victorialogs-query`](skills/victorialogs-query/SKILL.md) 和
 [`nova-game-play-code-analysis`](skills/nova-game-play-code-analysis/SKILL.md)，安装方式见
 [`docs/codex-http.md`](docs/codex-http.md)。
+[`nova-tag-fund-risk-review`](skills/nova-tag-fund-risk-review/SKILL.md) 负责在隔离的
+Tag checkout 中仅审查可能导致资金损失的游戏规则和调控策略问题。
 仓库还包含独立的
 [`jenkins-trigger-build`](skills/jenkins-trigger-build/SKILL.md)，用于在用户明确要求
 build 或 deploy 时先预览、再触发 Nova Jenkins 构建。完成事故修复或创建 MR 不会
@@ -225,6 +227,17 @@ Lark 会话映射键为 `<chat_id>:<thread_root>`。`thread_root` 优先使用 L
 
 Lark 开发者后台所需事件、权限、环境变量、systemd 配置和群内使用方式见
 [`docs/lark-codex-bot.md`](docs/lark-codex-bot.md)。
+
+## GitLab Tag 自动审查
+
+`serve-lark-codex` 可以额外接收 GitLab `Tag Push Hook`。创建 Tag 时，Webhook
+立即返回 `202`，任务进入与群消息相同的单 worker 队列。Codex 会在隔离 checkout
+中审查 Tag 对应的完整代码，结果主动发送到配置的 Lark 群；删除 Tag 和重复投递
+不会重复审查。
+
+当前只检查两类可能导致资金损失的问题：游戏规则实现漏洞，以及游戏玩法设计或
+调控策略不合理。不会修改代码、创建 MR 或触发构建。配置及 GitLab Webhook 创建
+方式见 [`docs/gitlab-tag-review.md`](docs/gitlab-tag-review.md)。
 
 ## 配置
 
@@ -303,6 +316,7 @@ ai-review/
 │   ├── codexhttp/                 # Codex HTTP API、鉴权和并发控制
 │   ├── config/                    # 配置加载（YAML + 环境变量）
 │   ├── larkbot/                   # Lark 长连接、队列、会话映射与 Codex HTTP 客户端
+│   ├── tagreview/                 # GitLab Tag Push Webhook 校验与事件解析
 │   ├── llm/                       # Anthropic Messages API 客户端
 │   ├── prompt/                    # Prompt 模板管理
 │   ├── review/                    # 审查流程编排
@@ -313,6 +327,7 @@ ai-review/
 │   ├── jenkins-trigger-build/     # Jenkins 构建预览与触发
 │   ├── nova-game-play-code-analysis/ # Nova 项目准备和源码分析
 │   ├── nova-incident-remediation/ # 告警定位、修复和 MR 编排
+│   ├── nova-tag-fund-risk-review/ # Tag 资金风险只读审查
 │   ├── nova-victorialogs-query/   # Nova 环境和日志查询约定
 │   └── victorialogs-query/        # 通用 LogsQL 查询能力
 ├── Dockerfile                     # 多阶段构建（Go + Node/Claude CLI）

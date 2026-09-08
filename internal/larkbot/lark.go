@@ -15,22 +15,24 @@ import (
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
+	"github.com/wangle201210/ai-review/internal/tagreview"
 )
 
 type ServiceConfig struct {
-	AppID          string
-	AppSecret      string
-	BaseURL        string
-	AllowedChatIDs []string
-	StatePath      string
-	QueueSize      int
-	RequireReply   bool
-	CodexURL       string
-	CodexAuthToken string
-	CodexTimeout   time.Duration
-	BusyRetry      time.Duration
-	MaxPromptBytes int
-	Logger         *log.Logger
+	AppID           string
+	AppSecret       string
+	BaseURL         string
+	AllowedChatIDs  []string
+	StatePath       string
+	QueueSize       int
+	RequireReply    bool
+	CodexURL        string
+	CodexAuthToken  string
+	CodexTimeout    time.Duration
+	BusyRetry       time.Duration
+	MaxPromptBytes  int
+	TagReviewChatID string
+	Logger          *log.Logger
 }
 
 type Service struct {
@@ -100,11 +102,12 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 
 	gateway := &larkGateway{client: apiClient, channel: larkChannel}
 	bot, err := NewBot(gateway, codexClient, store, BotConfig{
-		QueueSize:      cfg.QueueSize,
-		RequireReply:   cfg.RequireReply,
-		BusyRetry:      cfg.BusyRetry,
-		MaxPromptBytes: cfg.MaxPromptBytes,
-		Logger:         cfg.Logger,
+		QueueSize:       cfg.QueueSize,
+		RequireReply:    cfg.RequireReply,
+		BusyRetry:       cfg.BusyRetry,
+		MaxPromptBytes:  cfg.MaxPromptBytes,
+		TagReviewChatID: cfg.TagReviewChatID,
+		Logger:          cfg.Logger,
 	})
 	if err != nil {
 		return nil, err
@@ -117,6 +120,10 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	}
 	service.registerHandlers()
 	return service, nil
+}
+
+func (s *Service) EnqueueTagReview(ctx context.Context, review tagreview.Review) (bool, error) {
+	return s.bot.EnqueueTagReview(ctx, review)
 }
 
 func (s *Service) Run(ctx context.Context) error {
@@ -219,6 +226,15 @@ func (g *larkGateway) Reply(ctx context.Context, chatID, messageID, markdown str
 		ChatID:         chatID,
 		ReplyMessageID: messageID,
 		Markdown:       markdown,
+	})
+	return err
+}
+
+func (g *larkGateway) Send(ctx context.Context, chatID, title, markdown string) error {
+	_, err := g.channel.Send(ctx, &channeltypes.SendInput{
+		ChatID:   chatID,
+		Title:    title,
+		Markdown: markdown,
 	})
 	return err
 }

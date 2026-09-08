@@ -81,6 +81,8 @@ func TestCodexEnvironmentRemovesServiceSecrets(t *testing.T) {
 		"HTTP__AUTH_TOKEN=secret",
 		"AI_REVIEW_HTTP_TOKEN=secret",
 		"GITHUB_TOKEN=secret",
+		"GITLAB_TAG_REVIEW__SECRET=secret",
+		"LARK__APP_SECRET=secret",
 		"CODEX_HOME=/var/lib/codex",
 	}
 
