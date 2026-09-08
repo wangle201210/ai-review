@@ -243,6 +243,7 @@ Lark 开发者后台所需事件、权限、环境变量、systemd 配置和群�
 结算异常、可能造成资金损失的规则、玩法设计和调控策略漏洞，以及具有可达路径的
 潜在空指针。不会修改代码、创建 MR 或触发构建。配置及 GitLab Webhook 创建方式见
 [`docs/gitlab-tag-review.md`](docs/gitlab-tag-review.md)。
+范围较大的 Tag 会使用最多五个只读 subagents 并行检查，由主代理统一核验和输出。
 
 ## 配置
 

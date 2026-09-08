@@ -137,7 +137,7 @@ systemctl enable --now ai-review-lark-codex.service
 | `LARK__REQUIRE_REPLY` | `true` | 是否必须回复一条消息后才能发起任务 |
 | `LARK__CODEX_URL` | `http://127.0.0.1:8787/v1/codex` | Codex HTTP API |
 | `LARK__CODEX_AUTH_TOKEN` | 无 | Codex HTTP Bearer Token；空表示不发送鉴权头 |
-| `LARK__CODEX_TIMEOUT_SECONDS` | `1860` | 等待单个 Codex turn 的超时 |
+| `LARK__CODEX_TIMEOUT_SECONDS` | `3660` | 等待单个 Codex turn 的超时；应略大于服务端 turn 超时 |
 | `LARK__BUSY_RETRY_SECONDS` | `5` | Codex 返回 `409/429` 后的重试间隔 |
 | `LARK__MAX_PROMPT_BYTES` | `49152` | 合成提示词的最大字节数 |
 

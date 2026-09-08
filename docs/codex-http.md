@@ -37,6 +37,19 @@ cp -R \
   ~/.codex/skills/
 ```
 
+服务器还可以安装
+[`deploy/codex/global-agents.md`](../deploy/codex/global-agents.md) 作为
+`$CODEX_HOME/AGENTS.md`，并在 `$CODEX_HOME/config.toml` 中启用稳定的多代理能力：
+
+```toml
+[features]
+multi_agent = true
+```
+
+该全局指令要求复杂 Tag Review 和事故调查最多使用五个并行 subagents，同时将共享
+checkout 保持为只读，并由主代理统一修改、测试和执行外部写操作。若目标文件已存在，
+应合并这段规则而不是直接覆盖已有全局指令。
+
 从旧版本升级时必须删除上面的 `kibana-log-query` 目录，否则已失效的 Skill 仍会被
 Codex 自动发现。该命令只删除这个明确的旧 Skill 目录。
 
@@ -234,7 +247,7 @@ curl http://127.0.0.1:8787/v1/codex \
 | `CODEX__BINARY` | `codex` | Codex CLI 路径或命令名 |
 | `CODEX__WORK_DIR` | 无 | 必填，Codex 唯一工作目录 |
 | `CODEX__SANDBOX` | `workspace-write` | `read-only` 或 `workspace-write` |
-| `CODEX__TIMEOUT_SECONDS` | `1800` | 单个 turn 超时时间 |
+| `CODEX__TIMEOUT_SECONDS` | `3600` | 单个 turn 超时时间 |
 | `CODEX__SKIP_GIT_REPO_CHECK` | `false` | 是否允许在非 Git 目录运行 |
 | `CODEX__NETWORK_ACCESS` | `false` | 在 `workspace-write` 沙箱中允许命令访问网络 |
 
@@ -251,7 +264,7 @@ codex:
   binary: codex
   work_dir: /srv/my-project
   sandbox: workspace-write
-  timeout_seconds: 1800
+  timeout_seconds: 3600
   skip_git_repo_check: false
   network_access: false
 ```

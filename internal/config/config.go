@@ -125,7 +125,7 @@ func Load() (*Config, error) {
 		Codex: CodexConfig{
 			Binary:         "codex",
 			Sandbox:        "workspace-write",
-			TimeoutSeconds: 1800,
+			TimeoutSeconds: 3600,
 		},
 		HTTP: HTTPConfig{
 			ListenAddr:      "127.0.0.1:8787",
@@ -138,7 +138,7 @@ func Load() (*Config, error) {
 			QueueSize:           32,
 			RequireReply:        true,
 			CodexURL:            "http://127.0.0.1:8787/v1/codex",
-			CodexTimeoutSeconds: 1860,
+			CodexTimeoutSeconds: 3660,
 			BusyRetrySeconds:    5,
 			MaxPromptBytes:      48 * 1024,
 		},

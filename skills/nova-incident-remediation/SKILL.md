@@ -22,6 +22,21 @@ that passes the user's message and optional resumed session unchanged.
 - Never force-push, rewrite shared history, reset a worktree, or discard
   existing changes.
 
+## Parallel investigation
+
+For a nontrivial incident, use collaboration tools to run up to five independent
+read-only investigations in parallel when available. Assign distinct ownership,
+for example the log timeline, exact-version source path, internal dependencies,
+testable root-cause hypotheses, and a contrarian review of the leading
+conclusion. Pass existing evidence and verified absolute paths instead of having
+every subagent repeat the same log query or repository scan.
+
+The root agent must reconcile the results and owns all code edits, cleanup,
+tests, commits, pushes, merge requests, deployments, and other external writes.
+Do not let agents edit the same checkout concurrently or run duplicate broad
+test suites. Skip delegation when the incident is narrow or the next steps are
+strictly sequential.
+
 ## 1. Establish the incident
 
 1. Extract the application, timestamp and timezone, cluster, error, stack,

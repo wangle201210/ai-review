@@ -6,6 +6,24 @@ import (
 	"testing"
 )
 
+func TestDefaultCodexTimeouts(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("CODEX__TIMEOUT_SECONDS", "")
+	t.Setenv("LARK__CODEX_TIMEOUT_SECONDS", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Codex.TimeoutSeconds != 3600 || cfg.Lark.CodexTimeoutSeconds != 3660 {
+		t.Fatalf(
+			"timeouts = Codex %d, Lark %d; want 3600 and 3660",
+			cfg.Codex.TimeoutSeconds,
+			cfg.Lark.CodexTimeoutSeconds,
+		)
+	}
+}
+
 func TestLoadCodexHTTPEnvironment(t *testing.T) {
 	t.Setenv("CODEX__BINARY", "/usr/local/bin/codex")
 	t.Setenv("CODEX__WORK_DIR", "/srv/project")
