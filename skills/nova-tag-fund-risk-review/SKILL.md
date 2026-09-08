@@ -49,6 +49,34 @@ an explicit `cd <absolute-checkout> && ...` in the same command.
   parallel or later calls cannot silently run from `~/game-play` or another
   repository.
 
+## Follow exact internal module versions
+
+Treat the tagged checkout's `go.mod`, including active `replace` directives, as
+the source of truth. When a reviewed betting, strategy, reconnect, settlement,
+or nil-pointer path crosses into another `git.easycodesource.com/nova/game-play`
+module, inspect the exact version selected by that Tag rather than the
+dependency repository's current `main` branch.
+
+- Run Go module resolution with `GOWORK=off` so a parent workspace cannot change
+  the tagged dependency graph. Prefer structured `go list -m -json` or
+  `go mod download -json` output over parsing cache paths by hand.
+- Resolve each relevant internal module into its own isolated absolute source
+  root. Verify its canonical Git origin and version or commit before reading it;
+  never switch an existing checkout in `~/game-play`.
+- For a local-path replacement, resolve the path relative to the tagged module,
+  verify the resulting absolute location, and stop if the referenced source is
+  unavailable. For a version replacement, follow the replacement module and
+  exact version.
+- Read each dependency root's own `AGENTS.md` by verified absolute path when it
+  exists. The main project's instructions do not automatically replace a
+  dependency repository's instructions.
+- Follow only internal dependencies reached by one of the six scoped review
+  paths. Do not recursively audit unrelated modules or general third-party
+  libraries.
+- Cite the owning repository, module version, file, and line for every
+  cross-repository finding, and distinguish a defect in the tagged project from
+  one inherited through a pinned dependency.
+
 ## Analyze the complete tag
 
 Inspect the complete code at the tag, not only the change from a previous tag.
