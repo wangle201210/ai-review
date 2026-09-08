@@ -29,6 +29,26 @@ against external systems.
 - Read applicable `AGENTS.md` files from the isolated checkout before analysis.
   Remove only the temporary checkout created for this review when finished.
 
+## Keep every command rooted
+
+Shell working directories do not carry across tool calls. After creating the
+isolated checkout, resolve its absolute top level and bind every subsequent
+command to it. Use `git -C <absolute-checkout> ...`, absolute file arguments, or
+an explicit `cd <absolute-checkout> && ...` in the same command.
+
+- Never discover `AGENTS.md` in one command and later run bare
+  `sed ... AGENTS.md` in another command. Read the verified absolute path, for
+  example `sed -n '1,240p' <absolute-checkout>/AGENTS.md`.
+- Before reading an optional instruction file, test that exact absolute path.
+  Absence means no instruction file applies at that directory; it should not
+  produce a failed command.
+- When inspecting dependency source outside the isolated checkout, resolve and
+  keep a separate absolute dependency root. Discover and read that root's own
+  `AGENTS.md` if present; never reuse a relative path from the main checkout.
+- Apply the same rule to `rg`, `find`, `sed`, `nl`, and other source reads so
+  parallel or later calls cannot silently run from `~/game-play` or another
+  repository.
+
 ## Analyze the complete tag
 
 Inspect the complete code at the tag, not only the change from a previous tag.
