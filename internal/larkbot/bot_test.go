@@ -289,8 +289,11 @@ func TestBotProcessesTagReviewAndDeduplicatesDelivery(t *testing.T) {
 	for _, expected := range []string{
 		"$nova-tag-fund-risk-review",
 		"version/v2.65.5",
+		"检查下注/撤销整个流程是否正常，是否没有过滤掉非法下注，比如金额为负等情况",
+		"检查策略的执行是否可能产生异常的结果，是否会出现让玩家可利用从而反复套现的问题",
+		"检查用户断线重连的相关逻辑，是否会导致用户的结算异常",
 		"可能存在的规则漏洞会导致资金损失的",
-		"此次代码分析不需要关注其它问题",
+		"规则漏洞可能是本身游戏玩法设计不合理，或者游戏的调控策略不合理导致的",
 	} {
 		if !strings.Contains(requests[0].Message, expected) {
 			t.Fatalf("Codex prompt does not contain %q:\n%s", expected, requests[0].Message)

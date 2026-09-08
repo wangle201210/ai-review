@@ -1,14 +1,13 @@
 ---
 name: nova-tag-fund-risk-review
-description: Review the complete source at an exact Nova game-play Git tag for game-rule or control-strategy flaws that could cause financial loss. Use for automated GitLab Tag Push reviews or when the user explicitly requests this narrow release risk review. Do not use for general code quality, incident remediation, or code changes.
+description: Review the complete source at an exact Nova game-play Git tag for betting and cancellation validation, exploitable control strategies, reconnect settlement errors, and rule flaws that could cause financial loss. Use for automated GitLab Tag Push reviews or when the user explicitly requests this narrow release risk review. Do not use for general code quality, incident remediation, or code changes.
 ---
 
 # Review Nova Tag Fund Risk
 
 Perform a read-only review of the exact project, tag, and commit supplied by the
-request. Limit findings to rule or control-strategy flaws that could cause
-financial loss. Do not report unrelated correctness, maintainability,
-performance, or style issues.
+request. Limit findings to the five review areas below. Do not report unrelated
+correctness, maintainability, performance, or style issues.
 
 ## Prepare an isolated checkout
 
@@ -28,15 +27,26 @@ performance, or style issues.
 ## Analyze the complete tag
 
 Inspect the complete code at the tag, not only the change from a previous tag.
-Trace game inputs, state transitions, award calculations, jackpot or bonus
-settlement, retries, reconnection, concurrency, configuration, and control
-strategies where relevant.
+Trace each relevant path end to end rather than judging isolated functions:
+
+1. Verify betting and cancellation from request parsing through state updates,
+   balance changes, settlement, rollback, and retry. Check that invalid bets,
+   including negative amounts, cannot pass any entry point or reappear through
+   cancellation, replay, or retry behavior.
+2. Verify that strategy execution cannot produce abnormal results that a player
+   can intentionally repeat to extract funds. Include game-control decisions and
+   their interaction with award or settlement state.
+3. Verify disconnect and reconnect behavior across pending rounds, restored
+   state, retries, and settlement. Look for duplicate, skipped, stale, or
+   inconsistent settlement.
+4. Identify other supported rule flaws that could cause financial loss.
+5. Identify unreasonable game design or control strategies that create such a
+   loss path.
 
 Report a finding only when code evidence supports a plausible path to financial
-loss through either:
-
-1. an exploitable or incorrect game-rule implementation; or
-2. an unreasonable game design or control strategy.
+loss within one of those five areas. For exploitability, establish the
+player-controlled input or sequence, the missing invariant, and why repeating or
+replaying it changes balances, awards, refunds, or settlement.
 
 Do not modify files, run deployment operations, push branches, create merge
 requests, or trigger builds. Avoid speculative findings that lack a concrete

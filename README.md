@@ -171,7 +171,7 @@ HTTP 服务适用于从另一台电脑发送单轮消息，并在需要上下文
 [`nova-game-play-code-analysis`](skills/nova-game-play-code-analysis/SKILL.md)，安装方式见
 [`docs/codex-http.md`](docs/codex-http.md)。
 [`nova-tag-fund-risk-review`](skills/nova-tag-fund-risk-review/SKILL.md) 负责在隔离的
-Tag checkout 中仅审查可能导致资金损失的游戏规则和调控策略问题。
+Tag checkout 中审查下注与撤销、策略套现、断线重连结算和规则资金风险。
 仓库还包含独立的
 [`jenkins-trigger-build`](skills/jenkins-trigger-build/SKILL.md)，用于在用户明确要求
 build 或 deploy 时先预览、再触发 Nova Jenkins 构建。完成事故修复或创建 MR 不会
@@ -235,9 +235,10 @@ Lark 开发者后台所需事件、权限、环境变量、systemd 配置和群�
 中审查 Tag 对应的完整代码，结果主动发送到配置的 Lark 群；删除 Tag 和重复投递
 不会重复审查。
 
-当前只检查两类可能导致资金损失的问题：游戏规则实现漏洞，以及游戏玩法设计或
-调控策略不合理。不会修改代码、创建 MR 或触发构建。配置及 GitLab Webhook 创建
-方式见 [`docs/gitlab-tag-review.md`](docs/gitlab-tag-review.md)。
+当前只检查下注与撤销的非法输入、可能被玩家反复套现的策略异常、断线重连导致的
+结算异常，以及可能造成资金损失的规则、玩法设计和调控策略漏洞。不会修改代码、
+创建 MR 或触发构建。配置及 GitLab Webhook 创建方式见
+[`docs/gitlab-tag-review.md`](docs/gitlab-tag-review.md)。
 
 ## 配置
 
