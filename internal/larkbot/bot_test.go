@@ -374,6 +374,7 @@ func TestBotProcessesTagReviewAndDeduplicatesDelivery(t *testing.T) {
 	}
 	if !strings.Contains(requests[1].Message, "$nova-tag-fund-risk-review") ||
 		strings.Contains(requests[1].Message, "$nova-incident-remediation") ||
+		!strings.Contains(requests[1].Message, "公司自有且已授权仓库开展的防御性业务逻辑审计") ||
 		!strings.Contains(requests[1].Message, "继续解释这个风险") {
 		t.Fatalf("follow-up prompt = %q", requests[1].Message)
 	}

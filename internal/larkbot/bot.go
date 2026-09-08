@@ -479,7 +479,7 @@ func buildTagReviewFollowUpPrompt(userMessage, parentMessage string, maxBytes in
 		userMessage = "继续分析当前 Tag 风险审查。"
 	}
 	prompt := fmt.Sprintf(
-		"$nova-tag-fund-risk-review\n\n这是当前 Tag 资金风险审查的后续问题。继续使用本 session 已核验的项目、Tag、Commit 和源码证据，不要切换到事故修复流程。\n\n用户本次发送的消息：\n%s\n\n用户回复/选中的消息：\n%s",
+		"$nova-tag-fund-risk-review\n\n这是对公司自有且已授权仓库开展的防御性业务逻辑审计，不涉及入侵外部系统。只报告代码证据、业务影响和防御性修复方向，不生成攻击脚本或武器化利用步骤。\n\n这是当前 Tag 资金风险审查的后续问题。继续使用本 session 已核验的项目、Tag、Commit 和源码证据，不要切换到事故修复流程。\n\n用户本次发送的消息：\n%s\n\n用户回复/选中的消息：\n%s",
 		userMessage,
 		strings.TrimSpace(parentMessage),
 	)
