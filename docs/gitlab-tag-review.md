@@ -66,6 +66,15 @@ openssl rand -hex 32
 http://<服务器地址>:8788/webhooks/gitlab/tag
 ```
 
+如果 GitLab 的出站网络不允许访问 `8788`，可通过 OpenResty/Nginx 的 80 或 443
+端口转发。配置示例见
+[`deploy/openresty/ai-review-webhook.conf.example`](../deploy/openresty/ai-review-webhook.conf.example)，
+此时 URL 不再携带 `8788`：
+
+```text
+http://<服务器地址>/webhooks/gitlab/tag
+```
+
 Group Webhook 会覆盖组内项目，但 GitLab 要求相应版本授权且操作者拥有 Group Owner
 或管理员权限；否则应在各项目配置 Project Webhook。GitLab 单次 push 默认超过三个
 Tag 时可能不发送任何 Tag Hook，应避免批量创建大量 Tag。
