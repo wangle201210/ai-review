@@ -230,13 +230,19 @@ func (g *larkGateway) Reply(ctx context.Context, chatID, messageID, markdown str
 	return err
 }
 
-func (g *larkGateway) Send(ctx context.Context, chatID, title, markdown string) error {
-	_, err := g.channel.Send(ctx, &channeltypes.SendInput{
+func (g *larkGateway) Send(ctx context.Context, chatID, title, markdown string) (string, error) {
+	result, err := g.channel.Send(ctx, &channeltypes.SendInput{
 		ChatID:   chatID,
 		Title:    title,
 		Markdown: markdown,
 	})
-	return err
+	if err != nil {
+		return "", err
+	}
+	if result == nil || result.MessageID == "" {
+		return "", errors.New("send Lark message returned no message ID")
+	}
+	return result.MessageID, nil
 }
 
 func incomingFromLark(message *channeltypes.NormalizedMessage) (IncomingMessage, error) {

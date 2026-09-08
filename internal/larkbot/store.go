@@ -16,9 +16,10 @@ const (
 )
 
 type stateData struct {
-	Version   int                  `json:"version"`
-	Sessions  map[string]string    `json:"sessions"`
-	Processed map[string]time.Time `json:"processed"`
+	Version      int                  `json:"version"`
+	Sessions     map[string]string    `json:"sessions"`
+	SessionKinds map[string]string    `json:"session_kinds,omitempty"`
+	Processed    map[string]time.Time `json:"processed"`
 }
 
 type Store struct {
@@ -36,9 +37,10 @@ func OpenStore(path string) (*Store, error) {
 	store := &Store{
 		path: filepath.Clean(path),
 		state: stateData{
-			Version:   stateVersion,
-			Sessions:  make(map[string]string),
-			Processed: make(map[string]time.Time),
+			Version:      stateVersion,
+			Sessions:     make(map[string]string),
+			SessionKinds: make(map[string]string),
+			Processed:    make(map[string]time.Time),
 		},
 		now: time.Now,
 	}
@@ -59,6 +61,9 @@ func OpenStore(path string) (*Store, error) {
 	if store.state.Sessions == nil {
 		store.state.Sessions = make(map[string]string)
 	}
+	if store.state.SessionKinds == nil {
+		store.state.SessionKinds = make(map[string]string)
+	}
 	if store.state.Processed == nil {
 		store.state.Processed = make(map[string]time.Time)
 	}
@@ -72,6 +77,12 @@ func (s *Store) Session(threadKey string) string {
 	return s.state.Sessions[threadKey]
 }
 
+func (s *Store) Thread(threadKey string) (sessionID, kind string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.Sessions[threadKey], s.state.SessionKinds[threadKey]
+}
+
 func (s *Store) Processed(messageID string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -81,6 +92,10 @@ func (s *Store) Processed(messageID string) bool {
 }
 
 func (s *Store) Complete(messageID, threadKey, sessionID string) error {
+	return s.CompleteThread(messageID, threadKey, sessionID, "")
+}
+
+func (s *Store) CompleteThread(messageID, threadKey, sessionID, kind string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -89,6 +104,9 @@ func (s *Store) Complete(messageID, threadKey, sessionID string) error {
 	}
 	if threadKey != "" && sessionID != "" {
 		s.state.Sessions[threadKey] = sessionID
+		if kind != "" {
+			s.state.SessionKinds[threadKey] = kind
+		}
 	}
 	s.pruneLocked()
 	return s.saveLocked()

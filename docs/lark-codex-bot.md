@@ -19,6 +19,11 @@
 一条新的消息（例如“继续”）。机器人不会自动重跑；只有用户明确发送新消息后，
 下一次调用才会通过 `codex exec resume` 继续原 session。
 
+GitLab Tag 审查同样建立 Lark 线程和 session 映射。机器人把最终审查结果回复到
+“Tag 资金风险审查已开始”消息下；用户回复线程内任意消息并 `@机器人` 时，会恢复
+原 Tag 审查 session，并继续使用 `$nova-tag-fund-risk-review`，不会进入事故修复
+流程。不同 Tag 审查使用不同 session。
+
 服务内部只有一个 Codex worker。即使多个群同时发任务，也不会在这台服务器上并发
 启动多个 Codex CLI。启用 GitLab Tag 审查后，Webhook 任务也使用同一队列。队列满
 时群消息会提示用户稍后重试，Webhook 返回 `429`。
@@ -140,8 +145,8 @@ GitLab Tag 审查配置见 [`gitlab-tag-review.md`](gitlab-tag-review.md)。目�
 `GITLAB_TAG_REVIEW__LARK_CHAT_ID` 独立配置，因此后续可以在不改变日常 Bug 修复群
 的情况下切换到专用审查群。
 
-状态文件以 `0600` 原子写入。已处理的消息 ID 保留 7 天，用于抵御 Lark 重复推送；
-线程到 Codex session 的映射会跨服务重启保留。
+状态文件以 `0600` 原子写入。已处理的消息 ID 和 Tag 事件保留 7 天用于去重；线程
+到 Codex session 的映射及线程类型会跨服务重启保留。
 
 ## 日志
 

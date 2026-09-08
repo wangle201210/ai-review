@@ -2,6 +2,7 @@ package larkbot
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"path/filepath"
@@ -14,49 +15,76 @@ import (
 )
 
 type sentMessage struct {
-	chatID   string
-	title    string
-	markdown string
+	messageID string
+	chatID    string
+	title     string
+	markdown  string
 }
 
 type fakeGateway struct {
-	mu      sync.Mutex
-	parents map[string]string
-	replies []string
-	sends   []sentMessage
-	notify  chan struct{}
+	mu           sync.Mutex
+	parents      map[string]string
+	replies      []string
+	replyTargets []string
+	sends        []sentMessage
+	notify       chan struct{}
 }
 
-func (g *fakeGateway) Send(_ context.Context, chatID, title, markdown string) error {
+func (g *fakeGateway) Send(_ context.Context, chatID, title, markdown string) (string, error) {
 	g.mu.Lock()
-	g.sends = append(g.sends, sentMessage{chatID: chatID, title: title, markdown: markdown})
+	messageID := fmt.Sprintf("sent-%d", len(g.sends)+1)
+	g.sends = append(g.sends, sentMessage{messageID: messageID, chatID: chatID, title: title, markdown: markdown})
 	g.mu.Unlock()
 	select {
 	case g.notify <- struct{}{}:
 	default:
 	}
-	return nil
+	return messageID, nil
 }
 
 func (g *fakeGateway) FetchMessage(_ context.Context, messageID string) (string, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	return g.parents[messageID], nil
 }
 
-func (g *fakeGateway) Reply(_ context.Context, _, _ string, markdown string) error {
+func (g *fakeGateway) Reply(_ context.Context, _, messageID string, markdown string) error {
 	g.mu.Lock()
 	g.replies = append(g.replies, markdown)
+	g.replyTargets = append(g.replyTargets, messageID)
 	g.mu.Unlock()
 	select {
 	case g.notify <- struct{}{}:
 	default:
 	}
 	return nil
+}
+
+func (g *fakeGateway) replyTargetSnapshot() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]string(nil), g.replyTargets...)
 }
 
 func (g *fakeGateway) replyCount() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return len(g.replies)
+}
+
+func (g *fakeGateway) replySnapshot() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]string(nil), g.replies...)
+}
+
+func (g *fakeGateway) setParent(messageID, content string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.parents == nil {
+		g.parents = make(map[string]string)
+	}
+	g.parents[messageID] = content
 }
 
 func (g *fakeGateway) sendSnapshot() []sentMessage {
@@ -279,7 +307,8 @@ func TestBotProcessesTagReviewAndDeduplicatesDelivery(t *testing.T) {
 	if err != nil || duplicate {
 		t.Fatalf("EnqueueTagReview() = duplicate %t, error %v", duplicate, err)
 	}
-	waitForSends(t, gateway, 2)
+	waitForSends(t, gateway, 1)
+	waitForReplies(t, gateway, 1)
 	waitForProcessed(t, store, review.DedupKey())
 
 	requests := turner.snapshot()
@@ -288,22 +317,33 @@ func TestBotProcessesTagReviewAndDeduplicatesDelivery(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"$nova-tag-fund-risk-review",
+		"公司自有且已授权仓库开展的防御性业务逻辑审计",
 		"version/v2.65.5",
 		"检查下注/撤销整个流程是否正常，是否没有过滤掉非法下注，比如金额为负等情况",
 		"检查策略的执行是否可能产生异常的结果，是否会出现让玩家可利用从而反复套现的问题",
 		"检查用户断线重连的相关逻辑，是否会导致用户的结算异常",
 		"可能存在的规则漏洞会导致资金损失的",
 		"规则漏洞可能是本身游戏玩法设计不合理，或者游戏的调控策略不合理导致的",
+		"检查是否存在可能触发空指针的逻辑",
 	} {
 		if !strings.Contains(requests[0].Message, expected) {
 			t.Fatalf("Codex prompt does not contain %q:\n%s", expected, requests[0].Message)
 		}
 	}
 	sends := gateway.sendSnapshot()
-	if sends[0].chatID != "chat-review" || sends[0].title != "Tag 资金风险审查已开始" ||
-		sends[1].title != "Tag 资金风险审查结果" ||
-		!strings.Contains(sends[1].markdown, "Codex result") {
+	if len(sends) != 1 || sends[0].messageID != "sent-1" || sends[0].chatID != "chat-review" ||
+		sends[0].title != "Tag 资金风险审查已开始" {
 		t.Fatalf("Lark sends = %#v", sends)
+	}
+	replies := gateway.replySnapshot()
+	replyTargets := gateway.replyTargetSnapshot()
+	if len(replies) != 1 || !strings.Contains(replies[0], "Codex result") ||
+		len(replyTargets) != 1 || replyTargets[0] != "sent-1" {
+		t.Fatalf("Lark replies = %#v, targets = %#v", replies, replyTargets)
+	}
+	threadKey := "chat-review:sent-1"
+	if sessionID, kind := store.Thread(threadKey); sessionID != "session-new" || kind != threadKindTagReview {
+		t.Fatalf("stored tag thread = session %q, kind %q", sessionID, kind)
 	}
 
 	duplicate, err = bot.EnqueueTagReview(ctx, review)
@@ -313,6 +353,66 @@ func TestBotProcessesTagReviewAndDeduplicatesDelivery(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if got := len(turner.snapshot()); got != 1 {
 		t.Fatalf("duplicate triggered Codex; request count = %d", got)
+	}
+
+	gateway.setParent("tag-result-1", "Tag 审查结果：Codex result")
+	followUp := IncomingMessage{
+		MessageID: "follow-up-1",
+		ChatID:    "chat-review",
+		ChatType:  "group",
+		ParentID:  "tag-result-1",
+		RootID:    "sent-1",
+		Text:      "继续解释这个风险",
+	}
+	if err := bot.Handle(ctx, followUp); err != nil {
+		t.Fatalf("Handle(follow-up) error = %v", err)
+	}
+	waitForReplies(t, gateway, 3)
+	requests = turner.snapshot()
+	if len(requests) != 2 || requests[1].SessionID != "session-new" {
+		t.Fatalf("follow-up Codex requests = %#v", requests)
+	}
+	if !strings.Contains(requests[1].Message, "$nova-tag-fund-risk-review") ||
+		strings.Contains(requests[1].Message, "$nova-incident-remediation") ||
+		!strings.Contains(requests[1].Message, "继续解释这个风险") {
+		t.Fatalf("follow-up prompt = %q", requests[1].Message)
+	}
+	if sessionID, kind := store.Thread(threadKey); sessionID != "session-new" || kind != threadKindTagReview {
+		t.Fatalf("tag thread after follow-up = session %q, kind %q", sessionID, kind)
+	}
+}
+
+func TestBotPreservesTagReviewSessionOnTimeout(t *testing.T) {
+	gateway := &fakeGateway{notify: make(chan struct{}, 8)}
+	turner := &fakeTurner{timeoutOnce: true}
+	bot, store := newTestBot(t, gateway, turner, true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go bot.Run(ctx)
+
+	review := tagreview.Review{
+		ProjectID:   42,
+		ProjectName: "kraken",
+		ProjectPath: "nova/game-play/kraken",
+		ProjectURL:  "https://git.easycodesource.com/nova/game-play/kraken",
+		Tag:         "version/v2.65.5",
+		CommitSHA:   "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7",
+	}
+	if duplicate, err := bot.EnqueueTagReview(ctx, review); err != nil || duplicate {
+		t.Fatalf("EnqueueTagReview() = duplicate %t, error %v", duplicate, err)
+	}
+	waitForSends(t, gateway, 1)
+	waitForReplies(t, gateway, 1)
+	waitForProcessed(t, store, review.DedupKey())
+
+	if sessionID, kind := store.Thread("chat-review:sent-1"); sessionID != "session-timeout" || kind != threadKindTagReview {
+		t.Fatalf("timed-out tag thread = session %q, kind %q", sessionID, kind)
+	}
+	replies := gateway.replySnapshot()
+	if len(replies) != 1 || !strings.Contains(replies[0], "会话已保留") ||
+		!strings.Contains(replies[0], "@ 机器人发送“继续”") {
+		t.Fatalf("timeout reply = %#v", replies)
 	}
 }
 

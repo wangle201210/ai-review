@@ -41,6 +41,32 @@ func TestStorePersistsSessionAndProcessedMessage(t *testing.T) {
 	}
 }
 
+func TestStorePersistsTagReviewThreadKindAndLoadsLegacyState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lark.json")
+	legacy := `{"version":1,"sessions":{"oc_chat:om_old":"session-old"},"processed":{}}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	store, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("OpenStore() error = %v", err)
+	}
+	if sessionID, kind := store.Thread("oc_chat:om_old"); sessionID != "session-old" || kind != "" {
+		t.Fatalf("legacy thread = session %q, kind %q", sessionID, kind)
+	}
+	if err := store.CompleteThread("tag-event", "oc_chat:om_tag", "session-tag", threadKindTagReview); err != nil {
+		t.Fatalf("CompleteThread() error = %v", err)
+	}
+
+	reloaded, err := OpenStore(path)
+	if err != nil {
+		t.Fatalf("OpenStore(reload) error = %v", err)
+	}
+	if sessionID, kind := reloaded.Thread("oc_chat:om_tag"); sessionID != "session-tag" || kind != threadKindTagReview {
+		t.Fatalf("tag thread = session %q, kind %q", sessionID, kind)
+	}
+}
+
 func TestStorePrunesOldProcessedMessages(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {
