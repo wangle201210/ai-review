@@ -25,6 +25,7 @@ type ServiceConfig struct {
 	AllowedChatIDs  []string
 	StatePath       string
 	QueueSize       int
+	WorkerCount     int
 	RequireReply    bool
 	CodexURL        string
 	CodexAuthToken  string
@@ -103,6 +104,7 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	gateway := &larkGateway{client: apiClient, channel: larkChannel}
 	bot, err := NewBot(gateway, codexClient, store, BotConfig{
 		QueueSize:       cfg.QueueSize,
+		WorkerCount:     cfg.WorkerCount,
 		RequireReply:    cfg.RequireReply,
 		BusyRetry:       cfg.BusyRetry,
 		MaxPromptBytes:  cfg.MaxPromptBytes,

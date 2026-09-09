@@ -160,6 +160,37 @@ func TestHandlerLimitsGlobalConcurrency(t *testing.T) {
 	}
 }
 
+func TestHandlerAllowsConfiguredConcurrency(t *testing.T) {
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	handler := newTestHandler(t, executorFunc(func(_ context.Context, _ codex.Request) (*codex.Result, error) {
+		started <- struct{}{}
+		<-release
+		return &codex.Result{SessionID: "thread-done", Message: "done"}, nil
+	}), 2)
+
+	responses := make(chan *httptest.ResponseRecorder, 2)
+	for _, message := range []string{"first", "second"} {
+		message := message
+		go func() {
+			responses <- performRequest(handler, `{"message":"`+message+`"}`, testToken)
+		}()
+	}
+	<-started
+	<-started
+
+	third := performRequest(handler, `{"message":"third"}`, testToken)
+	if third.Code != http.StatusTooManyRequests {
+		t.Fatalf("third status = %d, body = %s", third.Code, third.Body.String())
+	}
+	close(release)
+	for range 2 {
+		if response := <-responses; response.Code != http.StatusOK {
+			t.Fatalf("concurrent status = %d, body = %s", response.Code, response.Body.String())
+		}
+	}
+}
+
 func TestHandlerLocksResumedSession(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})

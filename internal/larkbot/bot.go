@@ -40,6 +40,7 @@ type MessageGateway interface {
 
 type BotConfig struct {
 	QueueSize       int
+	WorkerCount     int
 	RequireReply    bool
 	BusyRetry       time.Duration
 	MaxPromptBytes  int
@@ -50,6 +51,12 @@ type BotConfig struct {
 type queuedTask struct {
 	message   *IncomingMessage
 	tagReview *tagreview.Review
+	threadKey string
+}
+
+type threadLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 type Bot struct {
@@ -58,9 +65,12 @@ type Bot struct {
 	store   *Store
 	config  BotConfig
 	queue   chan queuedTask
+	queued  chan struct{}
 
-	activeMu sync.Mutex
-	active   map[string]struct{}
+	activeMu    sync.Mutex
+	active      map[string]struct{}
+	threadMu    sync.Mutex
+	threadLocks map[string]*threadLock
 }
 
 func NewBot(gateway MessageGateway, codex Turner, store *Store, cfg BotConfig) (*Bot, error) {
@@ -76,6 +86,9 @@ func NewBot(gateway MessageGateway, codex Turner, store *Store, cfg BotConfig) (
 	if cfg.QueueSize < 1 {
 		return nil, errors.New("Lark queue size must be at least 1")
 	}
+	if cfg.WorkerCount < 1 {
+		return nil, errors.New("Lark worker count must be at least 1")
+	}
 	if cfg.BusyRetry <= 0 {
 		return nil, errors.New("Lark busy retry interval must be greater than zero")
 	}
@@ -87,12 +100,14 @@ func NewBot(gateway MessageGateway, codex Turner, store *Store, cfg BotConfig) (
 	}
 
 	return &Bot{
-		gateway: gateway,
-		codex:   codex,
-		store:   store,
-		config:  cfg,
-		queue:   make(chan queuedTask, cfg.QueueSize),
-		active:  make(map[string]struct{}),
+		gateway:     gateway,
+		codex:       codex,
+		store:       store,
+		config:      cfg,
+		queue:       make(chan queuedTask, cfg.QueueSize),
+		queued:      make(chan struct{}, cfg.QueueSize),
+		active:      make(map[string]struct{}),
+		threadLocks: make(map[string]*threadLock),
 	}, nil
 }
 
@@ -107,19 +122,18 @@ func (b *Bot) Handle(ctx context.Context, message IncomingMessage) error {
 		return nil
 	}
 
-	select {
-	case b.queue <- queuedTask{message: &message}:
+	threadKey := message.ChatID + ":" + threadRoot(message)
+	if b.enqueue(queuedTask{message: &message, threadKey: threadKey}) {
 		b.config.Logger.Printf(
 			"[lark-codex] queued message_id=%q chat_id=%q queue_depth=%d",
 			message.MessageID,
 			message.ChatID,
-			len(b.queue),
+			len(b.queued),
 		)
 		return nil
-	default:
-		b.end(message.MessageID)
-		return b.gateway.Reply(ctx, message.ChatID, message.MessageID, queueBusyMessage)
 	}
+	b.end(message.MessageID)
+	return b.gateway.Reply(ctx, message.ChatID, message.MessageID, queueBusyMessage)
 }
 
 func (b *Bot) EnqueueTagReview(_ context.Context, review tagreview.Review) (bool, error) {
@@ -131,33 +145,105 @@ func (b *Bot) EnqueueTagReview(_ context.Context, review tagreview.Review) (bool
 		return true, nil
 	}
 
-	select {
-	case b.queue <- queuedTask{tagReview: &review}:
+	if b.enqueue(queuedTask{tagReview: &review}) {
 		b.config.Logger.Printf(
 			"[gitlab-tag-review] queued project=%q tag=%q commit=%s queue_depth=%d",
 			review.ProjectPath,
 			review.Tag,
 			review.CommitSHA,
-			len(b.queue),
+			len(b.queued),
 		)
 		return false, nil
-	default:
-		b.end(key)
-		return false, tagreview.ErrQueueFull
 	}
+	b.end(key)
+	return false, tagreview.ErrQueueFull
 }
 
 func (b *Bot) Run(ctx context.Context) {
+	jobs := make(chan queuedTask)
+	completed := make(chan queuedTask, b.config.WorkerCount)
+
+	var workers sync.WaitGroup
+	workers.Add(b.config.WorkerCount)
+	for range b.config.WorkerCount {
+		go func() {
+			defer workers.Done()
+			b.runWorker(ctx, jobs, completed)
+		}()
+	}
+	b.dispatch(ctx, jobs, completed)
+	close(jobs)
+	workers.Wait()
+}
+
+func (b *Bot) runWorker(ctx context.Context, jobs <-chan queuedTask, completed chan<- queuedTask) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case task := <-b.queue:
+		case task, ok := <-jobs:
+			if !ok {
+				return
+			}
 			switch {
 			case task.message != nil:
 				b.process(ctx, *task.message)
 			case task.tagReview != nil:
 				b.processTagReview(ctx, *task.tagReview)
+			}
+			select {
+			case completed <- task:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
+func (b *Bot) dispatch(ctx context.Context, jobs chan<- queuedTask, completed <-chan queuedTask) {
+	ready := make([]queuedTask, 0, b.config.WorkerCount)
+	waiting := make(map[string][]queuedTask)
+	reservedThreads := make(map[string]struct{})
+
+	for {
+		var jobChannel chan<- queuedTask
+		var next queuedTask
+		if len(ready) > 0 {
+			jobChannel = jobs
+			next = ready[0]
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case task := <-b.queue:
+			if task.threadKey == "" {
+				ready = append(ready, task)
+				continue
+			}
+			if _, reserved := reservedThreads[task.threadKey]; reserved {
+				waiting[task.threadKey] = append(waiting[task.threadKey], task)
+				continue
+			}
+			reservedThreads[task.threadKey] = struct{}{}
+			ready = append(ready, task)
+		case jobChannel <- next:
+			ready = ready[1:]
+			<-b.queued
+		case task := <-completed:
+			if task.threadKey == "" {
+				continue
+			}
+			threadQueue := waiting[task.threadKey]
+			if len(threadQueue) == 0 {
+				delete(reservedThreads, task.threadKey)
+				continue
+			}
+			ready = append(ready, threadQueue[0])
+			if len(threadQueue) == 1 {
+				delete(waiting, task.threadKey)
+			} else {
+				waiting[task.threadKey] = threadQueue[1:]
 			}
 		}
 	}
@@ -170,6 +256,9 @@ func (b *Bot) process(ctx context.Context, message IncomingMessage) {
 		b.finishWithReply(ctx, message, requireReplyMessage, "")
 		return
 	}
+	threadKey := message.ChatID + ":" + threadRoot(message)
+	releaseThread := b.lockThread(threadKey)
+	defer releaseThread()
 
 	parentContent := ""
 	if message.ParentID != "" {
@@ -191,7 +280,6 @@ func (b *Bot) process(ctx context.Context, message IncomingMessage) {
 		b.config.Logger.Printf("[lark-codex] send acknowledgement failed message_id=%q: %v", message.MessageID, err)
 	}
 
-	threadKey := message.ChatID + ":" + threadRoot(message)
 	sessionID, threadKind := b.store.Thread(threadKey)
 	prompt := buildPrompt(message.Text, parentContent, b.config.MaxPromptBytes)
 	if threadKind == threadKindTagReview {
@@ -261,6 +349,10 @@ func (b *Bot) processTagReview(ctx context.Context, review tagreview.Review) {
 			review.Tag,
 			err,
 		)
+	}
+	if rootMessageID != "" {
+		releaseThread := b.lockThread(b.config.TagReviewChatID + ":" + rootMessageID)
+		defer releaseThread()
 	}
 
 	result, err := b.turnWithBusyRetry(ctx, TurnRequest{Message: buildTagReviewPrompt(review)})
@@ -417,6 +509,43 @@ func (b *Bot) end(messageID string) {
 	b.activeMu.Lock()
 	delete(b.active, messageID)
 	b.activeMu.Unlock()
+}
+
+func (b *Bot) enqueue(task queuedTask) bool {
+	select {
+	case b.queued <- struct{}{}:
+	default:
+		return false
+	}
+	select {
+	case b.queue <- task:
+		return true
+	default:
+		<-b.queued
+		return false
+	}
+}
+
+func (b *Bot) lockThread(key string) func() {
+	b.threadMu.Lock()
+	entry := b.threadLocks[key]
+	if entry == nil {
+		entry = &threadLock{}
+		b.threadLocks[key] = entry
+	}
+	entry.refs++
+	b.threadMu.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		b.threadMu.Lock()
+		entry.refs--
+		if entry.refs == 0 && b.threadLocks[key] == entry {
+			delete(b.threadLocks, key)
+		}
+		b.threadMu.Unlock()
+	}
 }
 
 func threadRoot(message IncomingMessage) string {

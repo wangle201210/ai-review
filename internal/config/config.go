@@ -81,6 +81,7 @@ type LarkConfig struct {
 	AllowedChatIDs      []string `yaml:"allowed_chat_ids"      json:"allowed_chat_ids"`
 	StatePath           string   `yaml:"state_path"            json:"state_path"`
 	QueueSize           int      `yaml:"queue_size"            json:"queue_size"`
+	WorkerCount         int      `yaml:"worker_count"          json:"worker_count"`
 	RequireReply        bool     `yaml:"require_reply"         json:"require_reply"`
 	CodexURL            string   `yaml:"codex_url"             json:"codex_url"`
 	CodexAuthToken      string   `yaml:"codex_auth_token"      json:"codex_auth_token"`
@@ -129,13 +130,14 @@ func Load() (*Config, error) {
 		},
 		HTTP: HTTPConfig{
 			ListenAddr:      "127.0.0.1:8787",
-			MaxConcurrent:   1,
+			MaxConcurrent:   2,
 			MaxRequestBytes: 64 * 1024,
 		},
 		Lark: LarkConfig{
 			BaseURL:             "https://open.larksuite.com",
 			StatePath:           ".ai-review-lark-state.json",
 			QueueSize:           32,
+			WorkerCount:         2,
 			RequireReply:        true,
 			CodexURL:            "http://127.0.0.1:8787/v1/codex",
 			CodexTimeoutSeconds: 3660,
@@ -242,6 +244,7 @@ func applyEnvOverrides(cfg *Config) {
 		"LARK__BASE_URL":      func(v string) { cfg.Lark.BaseURL = v },
 		"LARK__STATE_PATH":    func(v string) { cfg.Lark.StatePath = v },
 		"LARK__QUEUE_SIZE":    func(v string) { cfg.Lark.QueueSize, _ = strconv.Atoi(v) },
+		"LARK__WORKER_COUNT":  func(v string) { cfg.Lark.WorkerCount, _ = strconv.Atoi(v) },
 		"LARK__REQUIRE_REPLY": func(v string) { cfg.Lark.RequireReply = parseBool(v) },
 		"LARK__CODEX_URL":     func(v string) { cfg.Lark.CodexURL = v },
 		"LARK__CODEX_TIMEOUT_SECONDS": func(v string) {

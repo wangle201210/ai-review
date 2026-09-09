@@ -75,9 +75,10 @@ asking the user to restate information.
 
 1. Inspect `git status`, the current branch, remotes, and repository-local
    instructions before editing.
-2. Prefer a dedicated worktree and a new branch based on `origin/main`, such as
-   `codex/incident-YYYYMMDD-short-cause`, so the checked-out repositories remain
-   untouched. Fetch only the selected repository.
+2. Use a unique dedicated worktree and a new branch based on `origin/main`, such
+   as `codex/incident-YYYYMMDD-short-cause`, so the checked-out repositories
+   remain untouched and concurrent tasks never share a writable checkout. Fetch
+   only the selected repository.
 3. Change only the causal repository unless cross-repository changes are
    demonstrably required. Keep the patch narrowly scoped.
 4. Add or adjust a focused regression test when practical. Follow repository

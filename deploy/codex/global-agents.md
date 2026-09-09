@@ -14,6 +14,8 @@ investigations after the root agent has established the exact scope and paths.
   edits, destructive cleanup, commits, pushes, merge requests, deployments, and
   other external writes unless a subagent has a separate isolated worktree and
   explicit ownership.
+- Give every top-level task that may modify source a unique Git worktree and
+  branch. Never reuse or switch another active task's checkout.
 - Do not have multiple agents run the same build or broad test suite. The root
   agent selects one proportionate validation pass after gathering results.
 - Wait for all required subagents, reconcile conflicting conclusions, and verify

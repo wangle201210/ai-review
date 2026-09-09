@@ -6,10 +6,12 @@ import (
 	"testing"
 )
 
-func TestDefaultCodexTimeouts(t *testing.T) {
+func TestDefaultCodexRuntimeLimits(t *testing.T) {
 	t.Chdir(t.TempDir())
 	t.Setenv("CODEX__TIMEOUT_SECONDS", "")
 	t.Setenv("LARK__CODEX_TIMEOUT_SECONDS", "")
+	t.Setenv("HTTP__MAX_CONCURRENT", "")
+	t.Setenv("LARK__WORKER_COUNT", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -20,6 +22,13 @@ func TestDefaultCodexTimeouts(t *testing.T) {
 			"timeouts = Codex %d, Lark %d; want 3600 and 3660",
 			cfg.Codex.TimeoutSeconds,
 			cfg.Lark.CodexTimeoutSeconds,
+		)
+	}
+	if cfg.HTTP.MaxConcurrent != 2 || cfg.Lark.WorkerCount != 2 {
+		t.Fatalf(
+			"concurrency = HTTP %d, Lark %d; want 2 and 2",
+			cfg.HTTP.MaxConcurrent,
+			cfg.Lark.WorkerCount,
 		)
 	}
 }
@@ -64,6 +73,7 @@ func TestLoadLarkEnvironment(t *testing.T) {
 	t.Setenv("LARK__ALLOWED_CHAT_IDS", "oc_one, oc_two")
 	t.Setenv("LARK__STATE_PATH", "/tmp/lark-state.json")
 	t.Setenv("LARK__QUEUE_SIZE", "8")
+	t.Setenv("LARK__WORKER_COUNT", "3")
 	t.Setenv("LARK__REQUIRE_REPLY", "false")
 	t.Setenv("LARK__CODEX_URL", "http://127.0.0.1:9999/v1/codex")
 	t.Setenv("LARK__CODEX_AUTH_TOKEN", "codex-token")
@@ -80,6 +90,7 @@ func TestLoadLarkEnvironment(t *testing.T) {
 		cfg.Lark.BaseURL != "https://open.example.test" ||
 		cfg.Lark.StatePath != "/tmp/lark-state.json" ||
 		cfg.Lark.QueueSize != 8 ||
+		cfg.Lark.WorkerCount != 3 ||
 		cfg.Lark.RequireReply ||
 		cfg.Lark.CodexURL != "http://127.0.0.1:9999/v1/codex" ||
 		cfg.Lark.CodexAuthToken != "codex-token" ||

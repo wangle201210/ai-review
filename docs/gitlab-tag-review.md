@@ -11,7 +11,8 @@ Webhook 只做鉴权、事件解析、范围校验、排队和通知；实际源
 - 删除 Tag 时返回 `200 ignored`，不触发 Codex。
 - 同一项目、Tag 和 Commit 的重复事件在 7 天内不会重复执行。
 - Webhook 成功入队后立即返回 `202`，不等待 Codex 完成。
-- Tag 审查与 Lark 人工任务共享单 worker 队列，避免同时切换或修改工作区。
+- Tag 审查与 Lark 人工任务共享 worker 池；不同线程可并行，同一线程保持串行。
+- 每个任务使用独立 checkout/worktree，避免并发切换或修改同一工作目录。
 - Codex 使用隔离的临时 checkout，并验证 Tag 指向 Webhook 提供的 Commit。
 - 隔离 checkout 和依赖源码的所有命令使用各自的绝对根路径，不依赖跨工具调用的
   当前工作目录。

@@ -100,6 +100,53 @@ type fakeTurner struct {
 	timeoutOnce bool
 }
 
+type concurrentTurner struct {
+	mu        sync.Mutex
+	requests  []TurnRequest
+	active    int
+	maxActive int
+	started   chan TurnRequest
+	release   <-chan struct{}
+}
+
+func (t *concurrentTurner) Turn(ctx context.Context, request TurnRequest) (*TurnResponse, error) {
+	t.mu.Lock()
+	t.requests = append(t.requests, request)
+	callNumber := len(t.requests)
+	t.active++
+	if t.active > t.maxActive {
+		t.maxActive = t.active
+	}
+	t.mu.Unlock()
+
+	t.started <- request
+	select {
+	case <-ctx.Done():
+		t.finish()
+		return nil, ctx.Err()
+	case <-t.release:
+	}
+	t.finish()
+
+	sessionID := request.SessionID
+	if sessionID == "" {
+		sessionID = fmt.Sprintf("parallel-session-%d", callNumber)
+	}
+	return &TurnResponse{SessionID: sessionID, Message: "Codex result"}, nil
+}
+
+func (t *concurrentTurner) finish() {
+	t.mu.Lock()
+	t.active--
+	t.mu.Unlock()
+}
+
+func (t *concurrentTurner) snapshot() ([]TurnRequest, int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]TurnRequest(nil), t.requests...), t.maxActive
+}
+
 func (t *fakeTurner) Turn(_ context.Context, request TurnRequest) (*TurnResponse, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -239,6 +286,209 @@ func TestBotRetriesWhenCodexIsBusy(t *testing.T) {
 	if got := len(turner.snapshot()); got != 2 {
 		t.Fatalf("Codex request count = %d, want 2", got)
 	}
+}
+
+func TestBotRunsIndependentThreadsConcurrently(t *testing.T) {
+	gateway := &fakeGateway{
+		parents: map[string]string{"alert-1": "panic one", "alert-2": "panic two"},
+		notify:  make(chan struct{}, 16),
+	}
+	release := make(chan struct{})
+	turner := &concurrentTurner{
+		started: make(chan TurnRequest, 2),
+		release: release,
+	}
+	bot, _ := newTestBotWithWorkers(t, gateway, turner, true, 2)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go bot.Run(ctx)
+
+	for index, rootID := range []string{"alert-1", "alert-2"} {
+		message := IncomingMessage{
+			MessageID: fmt.Sprintf("message-%d", index+1),
+			ChatID:    "chat-1",
+			ChatType:  "group",
+			ParentID:  rootID,
+			RootID:    rootID,
+			Text:      "分析并修复",
+		}
+		if err := bot.Handle(ctx, message); err != nil {
+			t.Fatalf("Handle(%s) error = %v", rootID, err)
+		}
+	}
+	receiveStartedTurn(t, turner.started)
+	receiveStartedTurn(t, turner.started)
+	if _, maxActive := turner.snapshot(); maxActive != 2 {
+		t.Fatalf("maximum active turns = %d, want 2", maxActive)
+	}
+	close(release)
+	waitForReplies(t, gateway, 4)
+}
+
+func TestBotSerializesSameThreadAndResumesSession(t *testing.T) {
+	gateway := &fakeGateway{
+		parents: map[string]string{"alert-1": "panic"},
+		notify:  make(chan struct{}, 16),
+	}
+	release := make(chan struct{})
+	turner := &concurrentTurner{
+		started: make(chan TurnRequest, 2),
+		release: release,
+	}
+	bot, _ := newTestBotWithWorkers(t, gateway, turner, true, 2)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go bot.Run(ctx)
+
+	first := IncomingMessage{
+		MessageID: "message-1",
+		ChatID:    "chat-1",
+		ChatType:  "group",
+		ParentID:  "alert-1",
+		RootID:    "alert-1",
+		Text:      "首次处理",
+	}
+	second := first
+	second.MessageID = "message-2"
+	second.Text = "继续处理"
+	if err := bot.Handle(ctx, first); err != nil {
+		t.Fatalf("Handle(first) error = %v", err)
+	}
+	if err := bot.Handle(ctx, second); err != nil {
+		t.Fatalf("Handle(second) error = %v", err)
+	}
+	receiveStartedTurn(t, turner.started)
+	select {
+	case request := <-turner.started:
+		t.Fatalf("same thread started concurrently: %#v", request)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(release)
+	secondRequest := receiveStartedTurn(t, turner.started)
+	if secondRequest.SessionID != "parallel-session-1" {
+		t.Fatalf("second session = %q, want parallel-session-1", secondRequest.SessionID)
+	}
+	waitForReplies(t, gateway, 4)
+	if _, maxActive := turner.snapshot(); maxActive != 1 {
+		t.Fatalf("maximum active turns for one thread = %d, want 1", maxActive)
+	}
+}
+
+func TestWaitingSameThreadDoesNotBlockIndependentThread(t *testing.T) {
+	gateway := &fakeGateway{
+		parents: map[string]string{"alert-1": "panic one", "alert-2": "panic two"},
+		notify:  make(chan struct{}, 16),
+	}
+	release := make(chan struct{})
+	turner := &concurrentTurner{
+		started: make(chan TurnRequest, 3),
+		release: release,
+	}
+	bot, _ := newTestBotWithWorkers(t, gateway, turner, true, 2)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go bot.Run(ctx)
+
+	messages := []IncomingMessage{
+		{MessageID: "message-1", ChatID: "chat-1", ChatType: "group", ParentID: "alert-1", RootID: "alert-1", Text: "首次任务"},
+		{MessageID: "message-2", ChatID: "chat-1", ChatType: "group", ParentID: "alert-1", RootID: "alert-1", Text: "同线程等待"},
+		{MessageID: "message-3", ChatID: "chat-1", ChatType: "group", ParentID: "alert-2", RootID: "alert-2", Text: "独立任务"},
+	}
+	for _, message := range messages {
+		if err := bot.Handle(ctx, message); err != nil {
+			t.Fatalf("Handle(%s) error = %v", message.MessageID, err)
+		}
+	}
+	first := receiveStartedTurn(t, turner.started)
+	second := receiveStartedTurn(t, turner.started)
+	if strings.Contains(first.Message, "同线程等待") || strings.Contains(second.Message, "同线程等待") {
+		t.Fatalf("same-thread follow-up started before its predecessor: %#v %#v", first, second)
+	}
+	if !strings.Contains(first.Message, "独立任务") && !strings.Contains(second.Message, "独立任务") {
+		t.Fatalf("independent thread did not start: %#v %#v", first, second)
+	}
+	if _, maxActive := turner.snapshot(); maxActive != 2 {
+		t.Fatalf("maximum active turns = %d, want 2", maxActive)
+	}
+
+	close(release)
+	third := receiveStartedTurn(t, turner.started)
+	if !strings.Contains(third.Message, "同线程等待") || third.SessionID == "" {
+		t.Fatalf("same-thread follow-up = %#v", third)
+	}
+	waitForReplies(t, gateway, 6)
+}
+
+func TestBotBoundsSameThreadBacklog(t *testing.T) {
+	gateway := &fakeGateway{
+		parents: map[string]string{"alert-1": "panic"},
+		notify:  make(chan struct{}, 16),
+	}
+	release := make(chan struct{})
+	turner := &concurrentTurner{
+		started: make(chan TurnRequest, 3),
+		release: release,
+	}
+	store, err := OpenStore(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatalf("OpenStore() error = %v", err)
+	}
+	bot, err := NewBot(gateway, turner, store, BotConfig{
+		QueueSize:       2,
+		WorkerCount:     1,
+		RequireReply:    true,
+		BusyRetry:       time.Millisecond,
+		MaxPromptBytes:  4096,
+		TagReviewChatID: "chat-review",
+		Logger:          log.New(io.Discard, "", 0),
+	})
+	if err != nil {
+		t.Fatalf("NewBot() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go bot.Run(ctx)
+
+	message := IncomingMessage{
+		MessageID: "message-1",
+		ChatID:    "chat-1",
+		ChatType:  "group",
+		ParentID:  "alert-1",
+		RootID:    "alert-1",
+		Text:      "首次任务",
+	}
+	if err := bot.Handle(ctx, message); err != nil {
+		t.Fatalf("Handle(first) error = %v", err)
+	}
+	receiveStartedTurn(t, turner.started)
+	waitForQueueDepth(t, bot, 0)
+
+	for index := 2; index <= 3; index++ {
+		message.MessageID = fmt.Sprintf("message-%d", index)
+		message.Text = "排队任务"
+		if err := bot.Handle(ctx, message); err != nil {
+			t.Fatalf("Handle(%d) error = %v", index, err)
+		}
+	}
+	message.MessageID = "message-4"
+	if err := bot.Handle(ctx, message); err != nil {
+		t.Fatalf("Handle(full queue) error = %v", err)
+	}
+
+	if queued := len(bot.queued); queued != 2 {
+		t.Fatalf("queued tasks = %d, want 2", queued)
+	}
+	replies := gateway.replySnapshot()
+	if replies[len(replies)-1] != queueBusyMessage {
+		t.Fatalf("queue-full reply = %q, want %q", replies[len(replies)-1], queueBusyMessage)
+	}
+	close(release)
+	waitForReplies(t, gateway, 7)
 }
 
 func TestBotPreservesFirstSessionOnTimeoutAndResumesAfterNewMessage(t *testing.T) {
@@ -431,6 +681,16 @@ func TestBuildPromptTruncatesOnUTF8Boundaries(t *testing.T) {
 }
 
 func newTestBot(t *testing.T, gateway MessageGateway, turner Turner, requireReply bool) (*Bot, *Store) {
+	return newTestBotWithWorkers(t, gateway, turner, requireReply, 1)
+}
+
+func newTestBotWithWorkers(
+	t *testing.T,
+	gateway MessageGateway,
+	turner Turner,
+	requireReply bool,
+	workerCount int,
+) (*Bot, *Store) {
 	t.Helper()
 	store, err := OpenStore(filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {
@@ -438,6 +698,7 @@ func newTestBot(t *testing.T, gateway MessageGateway, turner Turner, requireRepl
 	}
 	bot, err := NewBot(gateway, turner, store, BotConfig{
 		QueueSize:       4,
+		WorkerCount:     workerCount,
 		RequireReply:    requireReply,
 		BusyRetry:       time.Millisecond,
 		MaxPromptBytes:  4096,
@@ -448,6 +709,32 @@ func newTestBot(t *testing.T, gateway MessageGateway, turner Turner, requireRepl
 		t.Fatalf("NewBot() error = %v", err)
 	}
 	return bot, store
+}
+
+func receiveStartedTurn(t *testing.T, started <-chan TurnRequest) TurnRequest {
+	t.Helper()
+	select {
+	case request := <-started:
+		return request
+	case <-time.After(2 * time.Second):
+		t.Fatal("Codex turn did not start")
+		return TurnRequest{}
+	}
+}
+
+func waitForQueueDepth(t *testing.T, bot *Bot, want int) {
+	t.Helper()
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for len(bot.queued) != want {
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatalf("queued tasks = %d, want %d", len(bot.queued), want)
+		}
+	}
 }
 
 func waitForSends(t *testing.T, gateway *fakeGateway, count int) {

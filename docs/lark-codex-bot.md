@@ -24,9 +24,10 @@ GitLab Tag 审查同样建立 Lark 线程和 session 映射。机器人把最终
 原 Tag 审查 session，并继续使用 `$nova-tag-fund-risk-review`，不会进入事故修复
 流程。不同 Tag 审查使用不同 session。
 
-服务内部只有一个 Codex worker。即使多个群同时发任务，也不会在这台服务器上并发
-启动多个 Codex CLI。启用 GitLab Tag 审查后，Webhook 任务也使用同一队列。队列满
-时群消息会提示用户稍后重试，Webhook 返回 `429`。
+服务默认运行两个 Codex worker。不同群或不同根消息可以并行执行；同一根消息通过
+线程顺序锁保持串行，前一轮保存 `session_id` 后下一轮才开始。启用 GitLab Tag
+审查后，Webhook 任务也使用同一 worker 池。队列满时群消息会提示用户稍后重试，
+Webhook 返回 `429`。
 
 ## Lark 开发者后台
 
@@ -85,6 +86,7 @@ LARK__STATE_PATH=/var/lib/ai-review/lark-state.json
 LARK__CODEX_URL=http://127.0.0.1:8787/v1/codex
 LARK__CODEX_AUTH_TOKEN=
 LARK__QUEUE_SIZE=32
+LARK__WORKER_COUNT=2
 LARK__REQUIRE_REPLY=true
 GITLAB_TAG_REVIEW__ENABLED=false
 ```
@@ -134,6 +136,7 @@ systemctl enable --now ai-review-lark-codex.service
 | `LARK__ALLOWED_CHAT_IDS` | 无 | 可选，逗号分隔的群 ID 白名单；空表示所有群 |
 | `LARK__STATE_PATH` | `.ai-review-lark-state.json` | 会话映射和消息去重状态 |
 | `LARK__QUEUE_SIZE` | `32` | 等待处理的最大任务数 |
+| `LARK__WORKER_COUNT` | `2` | 并行处理不同线程的 worker 数；同一线程仍串行 |
 | `LARK__REQUIRE_REPLY` | `true` | 是否必须回复一条消息后才能发起任务 |
 | `LARK__CODEX_URL` | `http://127.0.0.1:8787/v1/codex` | Codex HTTP API |
 | `LARK__CODEX_AUTH_TOKEN` | 无 | Codex HTTP Bearer Token；空表示不发送鉴权头 |

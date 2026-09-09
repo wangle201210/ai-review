@@ -201,8 +201,8 @@ Codex CLI 完整输出的 `journalctl` 查看方式、SSH 隧道和安全说明�
 
 `serve-lark-codex` 使用 Lark 长连接接收群里的 `@机器人` 回复，把用户消息与被回复
 的告警原文发送到本机 Codex HTTP 服务。它用根消息 ID 保存 Codex `session_id`，
-因此同一线程中的后续要求会延续上下文。服务只有一个 worker，不会并发启动多个
-Codex CLI。
+因此同一线程中的后续要求会延续上下文。服务默认使用两个 worker：不同 Lark 线程
+可以同时运行，同一线程仍按消息顺序串行。
 
 ### Codex session 规则
 
@@ -231,7 +231,7 @@ Lark 开发者后台所需事件、权限、环境变量、systemd 配置和群�
 ## GitLab Tag 自动审查
 
 `serve-lark-codex` 可以额外接收 GitLab `Tag Push Hook`。创建 Tag 时，Webhook
-立即返回 `202`，任务进入与群消息相同的单 worker 队列。Codex 会在隔离 checkout
+立即返回 `202`，任务进入与群消息相同的 worker 池。Codex 会在隔离 checkout
 中审查 Tag 对应的完整代码，结果主动发送到配置的 Lark 群；删除 Tag 和重复投递
 不会重复审查。
 

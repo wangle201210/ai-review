@@ -41,6 +41,7 @@ func runLarkCodexService(parent context.Context, cfg *config.Config) error {
 		AllowedChatIDs:  cfg.Lark.AllowedChatIDs,
 		StatePath:       cfg.Lark.StatePath,
 		QueueSize:       cfg.Lark.QueueSize,
+		WorkerCount:     cfg.Lark.WorkerCount,
 		RequireReply:    cfg.Lark.RequireReply,
 		CodexURL:        cfg.Lark.CodexURL,
 		CodexAuthToken:  cfg.Lark.CodexAuthToken,
@@ -58,10 +59,11 @@ func runLarkCodexService(parent context.Context, cfg *config.Config) error {
 	defer stop()
 
 	log.Printf(
-		"[lark-codex] starting base_url=%s codex_url=%s queue_size=%d require_reply=%t allowed_chats=%d",
+		"[lark-codex] starting base_url=%s codex_url=%s queue_size=%d workers=%d require_reply=%t allowed_chats=%d",
 		cfg.Lark.BaseURL,
 		cfg.Lark.CodexURL,
 		cfg.Lark.QueueSize,
+		cfg.Lark.WorkerCount,
 		cfg.Lark.RequireReply,
 		len(cfg.Lark.AllowedChatIDs),
 	)

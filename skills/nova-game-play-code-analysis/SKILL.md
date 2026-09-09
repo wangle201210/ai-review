@@ -8,8 +8,9 @@ description: Inspect and analyze Nova game-play source code under ~/game-play us
 ## Enforce scope
 
 Use `~/game-play` as the only project root. Treat each project as one direct
-child directory, `~/game-play/<project>`. Do not read, search, modify, or clean
-another project while preparing the requested project.
+canonical repository, `~/game-play/<project>`, and put task worktrees under
+`~/game-play/.worktrees`. Do not read, search, modify, or clean another project
+while preparing the requested project.
 
 Do not query VictoriaLogs with this skill. Work from evidence supplied by the
 user or from a result produced by `$nova-victorialogs-query`.
@@ -19,10 +20,6 @@ the requested source analysis. Otherwise prefer read-only inspection. Diagnose
 without editing code unless the user explicitly requests a fix. Do not commit,
 push, or create a merge request unless the user explicitly requests that
 workflow.
-
-Do not run builds, tests, generators, dependency installation, Docker commands,
-or services unless the user explicitly requests them and the server's global
-resource constraints permit them.
 
 ## Resolve the project
 
@@ -42,10 +39,12 @@ resource constraints permit them.
 
 When the exact target does not exist:
 
-1. Create `~/game-play` if necessary, without modifying its existing children.
-2. Clone only the canonical origin. Clone into a uniquely named temporary
-   sibling under `~/game-play`, not directly into the final path, so a failed
-   clone cannot leave a partial target.
+1. Create `~/game-play` and `~/game-play/.locks` if necessary. Acquire the
+   project-specific `flock`, then recheck whether the target now exists so two
+   concurrent tasks cannot install the same canonical repository.
+2. Clone only the canonical origin while holding that short lock. Clone into a
+   uniquely named temporary sibling under `~/game-play`, not directly into the
+   final path, so a failed clone cannot leave a partial target.
 3. Verify the temporary clone is a Git worktree whose top level is that exact
    temporary directory and whose `origin` identifies
    `git.easycodesource.com:2222/nova/game-play/<project>.git`.
@@ -71,54 +70,43 @@ Before fetching, switching, resetting, or cleaning an existing target:
 3. Stop on either verification failure. Never run destructive Git commands in
    an unverified directory.
 
-Repeat these checks immediately before any destructive recovery command. Use
-`git -C <exact-target>` for every Git operation; do not rely on the process
+Repeat these checks immediately before fetching or changing worktree metadata.
+Use `git -C <exact-target>` for every Git operation; do not rely on the process
 working directory.
 
-## Prepare the requested revision
+## Prepare the requested revision in a worktree
 
 If the user supplies a branch or tag, validate it as a Git ref before using it.
 Quote it in every command and do not interpret it as shell syntax.
 
-1. Inspect local heads, local tags, and the exact matching remote head or tag.
-   Fetch only the requested remote ref when it exists; do not run
-   `git fetch --all`.
-2. Prefer a branch over a same-named tag. Switch according to what exists:
-   - Existing local branch: `git switch <branch>`.
-   - Remote branch only: create a local tracking branch from
-     `origin/<branch>`.
-   - Tag only: switch to the tag in detached-HEAD mode.
-3. If the switch succeeds, preserve any nonblocking working-tree changes and
-   disclose them before analyzing the code.
-4. If and only if Git reports that local changes would be overwritten and the
-   switch is blocked, apply the recovery procedure below.
-5. After a successful switch, use `git pull --ff-only` only for a branch that
-   has an upstream. If it cannot fast-forward, stop and preserve local commits;
-   never force-reset the branch to its remote.
+1. Never switch, reset, or clean the canonical repository for a task. It is a
+   shared base that can be used by multiple concurrent Codex requests.
+2. Create `~/game-play/.locks` and use `flock` on the project-specific lock file
+   only while cloning, fetching the exact required ref, or adding/removing a
+   worktree. Run the protected operation within the same `flock` command because
+   shell state and file descriptors do not persist across tool calls. Do not
+   hold the lock during analysis, edits, or tests.
+3. Fetch only the exact requested remote ref when needed; do not run
+   `git fetch --all`. Resolve the requested branch, tag, or commit while holding
+   the short repository lock.
+4. Create a uniquely named task directory directly under
+   `~/game-play/.worktrees`, including the project and task purpose. Reject a
+   path that already exists or resolves outside this directory.
+5. For read-only analysis, add a detached worktree at the exact commit. For an
+   authorized fix, create a uniquely named branch and worktree from the intended
+   base, normally `origin/main` for incident remediation. Never reuse another
+   task's worktree or branch.
+6. Resolve and retain the absolute task-worktree root. Bind every Git and source
+   command to it with `git -C`, absolute paths, or an explicit same-command
+   `cd`; shell working directories do not persist between tool calls.
+7. Before cleanup, verify the exact task root, repository, branch, and status.
+   Remove only this task's clean worktree while holding the project lock. Leave
+   a worktree in place and report it if it has uncommitted or unpushed work.
 
-When no revision is supplied, inspect the current revision and report its
-branch or detached commit. Do not choose or switch branches speculatively.
-
-## Recover from a blocked switch
-
-The user authorizes discarding local working-tree changes only when those
-changes prevent switching to the requested revision. This permission does not
-authorize deleting commits, branches, ignored files, other repositories, or
-the project root.
-
-1. Re-verify the exact target and `origin`.
-2. Capture and report `git status --short` so the discarded paths are known.
-3. Run `git reset --hard HEAD` in the exact verified repository to discard
-   tracked working-tree and index changes, then retry the switch.
-4. If the retry is still blocked specifically by colliding untracked files,
-   preview `git clean -nd`, report the paths, and then run `git clean -fd` in
-   that exact repository. Never use `-x` or `-X`; ignored files must remain.
-5. Retry the switch once more. If it still fails, stop and report the exact
-   error rather than escalating to broader cleanup.
-
-Never delete local branches, discard unpushed commits, run
-`git reset --hard origin/<branch>`, or run recursive filesystem deletion as
-part of branch preparation.
+When no revision is supplied, resolve the intended base from the request or the
+verified canonical repository, report it, and still use a unique task worktree.
+Never delete local branches, discard unpushed commits, or rewrite shared
+history as part of preparation.
 
 ## Analyze the code
 
