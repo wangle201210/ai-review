@@ -161,6 +161,15 @@ func (h *Handler) handleTurn(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, context.Canceled) {
 			return
 		}
+		if errors.Is(err, codex.ErrIncompleteTurn) {
+			sessionID := request.SessionID
+			if result != nil && codex.ValidSessionID(result.SessionID) {
+				sessionID = result.SessionID
+			}
+			h.logger.Printf("[codex-http] incomplete turn session_id=%q duration=%s", sessionID, time.Since(startedAt).Round(time.Millisecond))
+			writeErrorWithSession(w, http.StatusBadGateway, "codex_incomplete", "Codex exited before completing the turn", sessionID)
+			return
+		}
 		if errors.Is(err, codex.ErrCyberPolicyBlocked) {
 			sessionID := request.SessionID
 			if result != nil && codex.ValidSessionID(result.SessionID) {

@@ -225,6 +225,8 @@ Lark 会话映射键为 `<chat_id>:<thread_root>`。`thread_root` 优先使用 L
   “继续”），下一次调用才会恢复执行。超时发生在 `thread.started` 之前或其他不可
   恢复的失败不会建立新映射；如果线程已有旧映射，失败也不会覆盖它。
 - Lark 重复投递同一个消息 ID 会被去重，不会产生额外的 Codex turn。
+- CLI 提前退出且没有 `turn.completed` 时按中断处理，保留已创建的 session，
+  提示用户继续；进度消息不会被当作最终结果。
 - 映射保存在 `LARK__STATE_PATH`，服务重启后仍可复用。目前 session 映射不会自动
   过期；用于消息去重的已处理消息 ID 会保留 7 天。
 

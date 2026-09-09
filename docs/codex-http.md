@@ -185,6 +185,10 @@ session_busy`。达到全局并发上限时返回 `429 server_busy`。
 创建 session 时附带 `session_id`。Lark 调用方会保存该 ID，让用户能够在原线程明确
 发送新消息继续。其他 Codex 失败不会触发这种自动恢复。
 
+只有收到 `turn.completed` 且 CLI 成功退出，才把回答视为完成。CLI 即使退出码为 0，
+如果只输出过进度消息就结束，仍返回 `502 codex_incomplete` 和已创建的 `session_id`。
+Lark 会保存会话并提示用户继续，不会把进度消息当作最终审查报告。
+
 ## 查看 Codex 输出
 
 服务会把 Codex CLI 的原始 JSONL stdout 事件和 stderr 实时写入自身日志。每行带有

@@ -119,6 +119,20 @@ func TestHandlerPolicyFailureReturnsPreservedSession(t *testing.T) {
 	}
 }
 
+func TestHandlerIncompleteTurnPreservesSession(t *testing.T) {
+	handler := newTestHandler(t, executorFunc(func(_ context.Context, _ codex.Request) (*codex.Result, error) {
+		return &codex.Result{SessionID: "thread-incomplete"}, codex.ErrIncompleteTurn
+	}), 1)
+	response := performRequest(handler, `{"message":"review"}`, testToken)
+	var body errorEnvelope
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusBadGateway || body.Error.Code != "codex_incomplete" || body.SessionID != "thread-incomplete" {
+		t.Fatalf("response = %d %#v", response.Code, body)
+	}
+}
+
 func TestHandlerRejectsShortConfiguredToken(t *testing.T) {
 	_, err := NewHandler(executorFunc(func(_ context.Context, _ codex.Request) (*codex.Result, error) {
 		return nil, nil

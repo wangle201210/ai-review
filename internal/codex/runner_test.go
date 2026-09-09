@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -417,6 +418,44 @@ sleep 5
 	}
 	if result == nil || result.SessionID != "019abcde-1234-7000-8000-0123456789ab" {
 		t.Fatalf("Execute() result = %#v, want preserved session", result)
+	}
+}
+
+func TestRunnerRejectsProgressWithoutCompletedTurn(t *testing.T) {
+	for _, priorTurn := range []bool{false, true} {
+		t.Run(fmt.Sprint("prior_completed_turn=", priorTurn), func(t *testing.T) {
+			dir := t.TempDir()
+			fakeCodex := filepath.Join(dir, "codex")
+			events := []string{`{"type":"thread.started","thread_id":"thread-incomplete"}`}
+			if priorTurn {
+				events = append(events,
+					`{"type":"item.completed","item":{"type":"agent_message","text":"earlier answer"}}`,
+					`{"type":"turn.completed"}`,
+				)
+			}
+			events = append(events,
+				`{"type":"turn.started"}`,
+				`{"type":"item.completed","item":{"type":"agent_message","text":"still reviewing the code"}}`,
+			)
+			script := "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '" + strings.Join(events, "' '") + "'\nexit 0\n"
+			if err := os.WriteFile(fakeCodex, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			runner, err := NewRunner(RunnerConfig{
+				Binary: fakeCodex, WorkDir: dir, Sandbox: "read-only",
+				Timeout: time.Second, Logger: log.New(io.Discard, "", 0),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := runner.Execute(context.Background(), Request{Message: "review"})
+			if !errors.Is(err, ErrIncompleteTurn) {
+				t.Fatalf("error = %v, want incomplete turn", err)
+			}
+			if result == nil || result.SessionID != "thread-incomplete" || result.Message != "" {
+				t.Fatalf("result = %#v; preserve only the session, not a progress message", result)
+			}
+		})
 	}
 }
 

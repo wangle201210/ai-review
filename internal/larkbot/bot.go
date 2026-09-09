@@ -15,13 +15,14 @@ import (
 )
 
 const (
-	defaultInstruction   = "请分析并处理被回复的异常。"
-	queueBusyMessage     = "当前任务队列已满，请稍后重新 @ 机器人。"
-	requireReplyMessage  = "请先回复需要分析的告警或日志消息，再 @ 机器人发送处理要求。"
-	acceptedMessage      = "已收到，开始分析。完成后会在此回复。"
-	timeoutResumeMessage = "Codex 本次执行已超时，但会话已保留。请继续回复同一条告警所在的线程，重新 @ 机器人并发送一条新消息，例如“继续”，系统将从原会话继续处理。"
-	policyResumeMessage  = "Codex 已自动恢复一次，但最终结果仍被内容分类拦截；会话已保留。请继续回复同一线程，重新 @ 机器人发送“继续”，系统将从原会话继续处理。"
-	threadKindTagReview  = "tag_review"
+	defaultInstruction      = "请分析并处理被回复的异常。"
+	queueBusyMessage        = "当前任务队列已满，请稍后重新 @ 机器人。"
+	requireReplyMessage     = "请先回复需要分析的告警或日志消息，再 @ 机器人发送处理要求。"
+	acceptedMessage         = "已收到，开始分析。完成后会在此回复。"
+	timeoutResumeMessage    = "Codex 本次执行已超时，但会话已保留。请继续回复同一条告警所在的线程，重新 @ 机器人并发送一条新消息，例如“继续”，系统将从原会话继续处理。"
+	policyResumeMessage     = "Codex 已自动恢复一次，但最终结果仍被内容分类拦截；会话已保留。请继续回复同一线程，重新 @ 机器人发送“继续”，系统将从原会话继续处理。"
+	incompleteResumeMessage = "Codex 本轮执行中断，未产生完整结果；会话已保留。请回复本线程并 @ 机器人发送“继续”。"
+	threadKindTagReview     = "tag_review"
 )
 
 type IncomingMessage struct {
@@ -306,6 +307,10 @@ func (b *Bot) process(ctx context.Context, message IncomingMessage) {
 			b.finishWithReply(ctx, message, timeoutResumeMessage, turnErr.SessionID)
 			return
 		}
+		if errors.As(err, &turnErr) && turnErr.Code == "codex_incomplete" && turnErr.SessionID != "" {
+			b.finishWithReply(ctx, message, incompleteResumeMessage, turnErr.SessionID)
+			return
+		}
 		if errors.As(err, &turnErr) && turnErr.Code == "codex_policy_blocked" && turnErr.SessionID != "" {
 			b.config.Logger.Printf(
 				"[lark-codex] Codex policy recovery exhausted; session preserved message_id=%q session_id=%q",
@@ -399,6 +404,8 @@ func (b *Bot) processTagReview(ctx context.Context, review tagreview.Review) {
 					review.Tag,
 					review.CommitSHA,
 				)
+			case "codex_incomplete":
+				failureMessage = fmt.Sprintf("项目：`%s`\n\nTag：`%s`\n\nCommit：`%s`\n\n%s", review.ProjectPath, review.Tag, review.CommitSHA, incompleteResumeMessage)
 			}
 		}
 		threadRoot, sendErr := b.deliverTagReviewMessage(
@@ -504,7 +511,7 @@ func (b *Bot) turnWithBusyRetry(ctx context.Context, request TurnRequest) (*Turn
 
 func recoverableTurnError(err *TurnError) bool {
 	return err != nil && err.SessionID != "" &&
-		(err.Code == "codex_timeout" || err.Code == "codex_policy_blocked")
+		(err.Code == "codex_timeout" || err.Code == "codex_policy_blocked" || err.Code == "codex_incomplete")
 }
 
 func (b *Bot) finishWithReply(ctx context.Context, message IncomingMessage, reply, sessionID string) {

@@ -29,6 +29,8 @@ const (
 
 var ErrCyberPolicyBlocked = errors.New("codex response blocked by cybersecurity policy")
 
+var ErrIncompleteTurn = errors.New("codex exited without a completed turn")
+
 type Request struct {
 	Message   string
 	SessionID string
@@ -238,6 +240,9 @@ func (r *Runner) execute(ctx context.Context, request Request, recoveryAttempts 
 		}
 		return resultWithSession(sessionID), fmt.Errorf("codex process failed: %w: %s", waitErr, detail)
 	}
+	if !state.completed {
+		return resultWithSession(sessionID), ErrIncompleteTurn
+	}
 	if sessionID == "" {
 		return nil, errors.New("codex response did not include a session id")
 	}
@@ -424,6 +429,10 @@ func scanEventsWithObservers(
 			if event.ThreadID != "" {
 				state.sessionID = event.ThreadID
 			}
+		case "turn.started":
+			state.completed = false
+			state.message = ""
+			state.failure = ""
 		case "item.completed":
 			if event.Item.Type == "agent_message" && event.Item.Text != "" {
 				state.message = event.Item.Text

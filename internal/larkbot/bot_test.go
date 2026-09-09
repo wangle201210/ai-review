@@ -99,6 +99,7 @@ type fakeTurner struct {
 	busyOnce          bool
 	timeoutOnce       bool
 	policyBlockedOnce bool
+	incompleteOnce    bool
 }
 
 type concurrentTurner struct {
@@ -173,6 +174,10 @@ func (t *fakeTurner) Turn(_ context.Context, request TurnRequest) (*TurnResponse
 			Message:    "Codex response remained blocked after automatic recovery",
 			SessionID:  "session-policy",
 		}
+	}
+	if t.incompleteOnce {
+		t.incompleteOnce = false
+		return nil, &TurnError{StatusCode: 502, Code: "codex_incomplete", SessionID: "session-incomplete"}
 	}
 	sessionID := request.SessionID
 	if sessionID == "" {
@@ -578,6 +583,44 @@ func TestBotPreservesMessageSessionAfterPolicyRecoveryFails(t *testing.T) {
 	if !strings.Contains(replies[len(replies)-1], "已自动恢复一次") ||
 		!strings.Contains(replies[len(replies)-1], "会话已保留") {
 		t.Fatalf("policy-blocked reply = %#v", replies)
+	}
+}
+
+func TestBotResumesIncompleteTurns(t *testing.T) {
+	for _, tagTask := range []bool{false, true} {
+		t.Run(fmt.Sprint("tag_task=", tagTask), func(t *testing.T) {
+			gateway := &fakeGateway{parents: map[string]string{"alert-1": "panic"}}
+			turner := &fakeTurner{incompleteOnce: true}
+			bot, store := newTestBot(t, gateway, turner, true)
+			ctx := context.Background()
+			message := IncomingMessage{MessageID: "message-1", ChatID: "chat-review", ChatType: "group", ParentID: "alert-1", RootID: "alert-1", Text: "review"}
+			if tagTask {
+				bot.processTagReview(ctx, tagreview.Review{ProjectID: 42, ProjectPath: "nova/game-play/kraken", Tag: "v1", CommitSHA: "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7"})
+				message.RootID = "sent-1"
+				message.ParentID = "sent-1"
+				gateway.setParent("sent-1", "Tag review")
+			} else {
+				bot.process(ctx, message)
+			}
+			key := message.ChatID + ":" + message.RootID
+			if got := store.Session(key); got != "session-incomplete" {
+				t.Fatalf("session = %q", got)
+			}
+			replies := gateway.replySnapshot()
+			if !strings.Contains(replies[len(replies)-1], "未产生完整结果") {
+				t.Fatalf("reply = %q", replies[len(replies)-1])
+			}
+			message.MessageID = "follow-up"
+			message.Text = "继续"
+			bot.process(ctx, message)
+			requests := turner.snapshot()
+			if len(requests) != 2 || requests[1].SessionID != "session-incomplete" {
+				t.Fatalf("requests = %#v", requests)
+			}
+			if tagTask && !strings.Contains(requests[1].Message, "$nova-tag-fund-risk-review") {
+				t.Fatal("Tag follow-up lost its review context")
+			}
+		})
 	}
 }
 
