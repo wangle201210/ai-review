@@ -156,7 +156,7 @@ AI-Review 采用双层审查架构：
 | `ai-review run-inline` | 仅深度逐行审查 |
 | `ai-review run-summary` | 仅摘要审查 |
 | `ai-review serve-codex` | 启动 Codex HTTP 服务 |
-| `ai-review serve-lark-codex` | 启动 Lark 群机器人及可选的 GitLab Tag 审查 Webhook |
+| `ai-review serve-lark-codex` | 启动 Lark 群机器人及可选的 GitLab MR 合并审查 Webhook |
 
 ## Codex HTTP 服务
 
@@ -170,8 +170,8 @@ HTTP 服务适用于从另一台电脑发送单轮消息，并在需要上下文
 [`victorialogs-query`](skills/victorialogs-query/SKILL.md) 和
 [`nova-game-play-code-analysis`](skills/nova-game-play-code-analysis/SKILL.md)，安装方式见
 [`docs/codex-http.md`](docs/codex-http.md)。
-[`nova-tag-fund-risk-review`](skills/nova-tag-fund-risk-review/SKILL.md) 负责在隔离的
-Tag checkout 中审查下注与撤销、策略套现、断线重连结算、规则资金风险和潜在空指针。
+[`nova-mr-impact-review`](skills/nova-mr-impact-review/SKILL.md) 在 MR 合并后检查变更
+及受影响逻辑的资金风险和潜在空指针；旧 Tag skill 保留用于历史线程追问。
 仓库还包含独立的
 [`jenkins-trigger-build`](skills/jenkins-trigger-build/SKILL.md)，用于在用户明确要求
 build 或 deploy 时先预览、再触发 Nova Jenkins 构建。完成事故修复或创建 MR 不会
@@ -233,23 +233,22 @@ Lark 会话映射键为 `<chat_id>:<thread_root>`。`thread_root` 优先使用 L
 Lark 开发者后台所需事件、权限、环境变量、systemd 配置和群内使用方式见
 [`docs/lark-codex-bot.md`](docs/lark-codex-bot.md)。
 
-## GitLab Tag 自动审查
+## GitLab MR 合并后审查
 
-`serve-lark-codex` 可以额外接收 GitLab `Tag Push Hook`。创建 Tag 时，Webhook
-立即返回 `202`，任务进入与群消息相同的 worker 池。Codex 会在隔离 checkout
-中审查 Tag 对应的完整代码，结果主动发送到配置的 Lark 群；删除 Tag 和重复投递
-不会重复审查。
+`serve-lark-codex` 接收 GitLab `Merge Request Hook`，仅 MR 被合并时触发。
+Webhook 立即返回 `202`，任务进入现有 worker 池。Codex 核验 MR 的固定差异版本和
+实际合并结果，检查变更逻辑及其影响到的调用路径、状态、配置和依赖，不全仓扫描。
+MR 创建、更新、审批、关闭和 Tag 事件不会触发审查；同一 MR 的重复事件去重。
 
-机器人先发送“Tag 资金风险审查已开始”作为线程根消息，最终结果回复到该线程并
-保存 Codex `session_id`。用户回复线程内的开始消息或审查结果并 `@机器人`，即可
-继续追问原审查，后续请求会通过 `codex exec resume` 复用源码和分析上下文。
+保留下注与撤销、策略异常、重连结算、资金规则及空指针检查，重点报告本次变更
+新增、暴露或加剧的问题。必要时做定向验证，不默认运行全量测试。审查只读。
 
-当前只检查下注与撤销的非法输入、可能被玩家反复套现的策略异常、断线重连导致的
-结算异常、可能造成资金损失的规则、玩法设计和调控策略漏洞，以及具有可达路径的
-潜在空指针。每个确认的问题会给出限定在本地或隔离测试环境的具体复现和回归验证
-步骤。不会修改代码、创建 MR 或触发构建。配置及 GitLab Webhook 创建方式见
-[`docs/gitlab-tag-review.md`](docs/gitlab-tag-review.md)。
-范围较大的 Tag 会使用最多五个只读 subagents 并行检查，由主代理统一核验和输出。
+开始消息建立 Lark 线程，结果回复到同一线程并保存 session；用户回复并 `@机器人`
+可以继续追问。已有 Tag 审查线程继续复用原来的上下文。
+
+将现有 GitLab Webhook 改为 **Merge request events**，取消 **Tag push events**，
+URL 改为 `/webhooks/gitlab/mr`。新配置使用 `GITLAB_MR_REVIEW__*`，旧变量及 URL
+仍作为兼容别名。完整部署和迁移说明见 [MR 合并审查](docs/gitlab-mr-review.md)。
 
 ## 配置
 
@@ -328,7 +327,7 @@ ai-review/
 │   ├── codexhttp/                 # Codex HTTP API、鉴权和并发控制
 │   ├── config/                    # 配置加载（YAML + 环境变量）
 │   ├── larkbot/                   # Lark 长连接、队列、会话映射与 Codex HTTP 客户端
-│   ├── tagreview/                 # GitLab Tag Push Webhook 校验与事件解析
+│   ├── mrreview/                  # GitLab MR 合并 Webhook 校验与事件解析
 │   ├── llm/                       # Anthropic Messages API 客户端
 │   ├── prompt/                    # Prompt 模板管理
 │   ├── review/                    # 审查流程编排
@@ -339,7 +338,8 @@ ai-review/
 │   ├── jenkins-trigger-build/     # Jenkins 构建预览与触发
 │   ├── nova-game-play-code-analysis/ # Nova 项目准备和源码分析
 │   ├── nova-incident-remediation/ # 告警定位、修复和 MR 编排
-│   ├── nova-tag-fund-risk-review/ # Tag 资金风险只读审查
+│   ├── nova-mr-impact-review/    # MR 合并后变更与影响范围审查
+│   ├── nova-tag-fund-risk-review/ # 历史 Tag 审查续接
 │   ├── nova-victorialogs-query/   # Nova 环境和日志查询约定
 │   └── victorialogs-query/        # 通用 LogsQL 查询能力
 ├── Dockerfile                     # 多阶段构建（Go + Node/Claude CLI）

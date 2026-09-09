@@ -104,27 +104,27 @@ func TestLoadLarkEnvironment(t *testing.T) {
 	}
 }
 
-func TestLoadGitLabTagReviewEnvironment(t *testing.T) {
-	t.Setenv("GITLAB_TAG_REVIEW__ENABLED", "true")
-	t.Setenv("GITLAB_TAG_REVIEW__LISTEN_ADDR", "0.0.0.0:8788")
-	t.Setenv("GITLAB_TAG_REVIEW__SECRET", "0123456789abcdef0123456789abcdef")
-	t.Setenv("GITLAB_TAG_REVIEW__LARK_CHAT_ID", "oc_review")
-	t.Setenv("GITLAB_TAG_REVIEW__ALLOWED_HOST", "git.example.test")
-	t.Setenv("GITLAB_TAG_REVIEW__ALLOWED_NAMESPACE", "nova/games")
-	t.Setenv("GITLAB_TAG_REVIEW__MAX_REQUEST_BYTES", "8192")
+func TestLoadGitLabMRReviewEnvironment(t *testing.T) {
+	t.Setenv("GITLAB_MR_REVIEW__ENABLED", "true")
+	t.Setenv("GITLAB_MR_REVIEW__LISTEN_ADDR", "0.0.0.0:8788")
+	t.Setenv("GITLAB_MR_REVIEW__SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("GITLAB_MR_REVIEW__LARK_CHAT_ID", "oc_review")
+	t.Setenv("GITLAB_MR_REVIEW__ALLOWED_HOST", "git.example.test")
+	t.Setenv("GITLAB_MR_REVIEW__ALLOWED_NAMESPACE", "nova/games")
+	t.Setenv("GITLAB_MR_REVIEW__MAX_REQUEST_BYTES", "8192")
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if !cfg.GitLabTagReview.Enabled ||
-		cfg.GitLabTagReview.ListenAddr != "0.0.0.0:8788" ||
-		cfg.GitLabTagReview.Secret != "0123456789abcdef0123456789abcdef" ||
-		cfg.GitLabTagReview.LarkChatID != "oc_review" ||
-		cfg.GitLabTagReview.AllowedHost != "git.example.test" ||
-		cfg.GitLabTagReview.AllowedNamespace != "nova/games" ||
-		cfg.GitLabTagReview.MaxRequestBytes != 8192 {
-		t.Fatalf("GitLab tag review config = %#v", cfg.GitLabTagReview)
+	if !cfg.GitLabMRReview.Enabled ||
+		cfg.GitLabMRReview.ListenAddr != "0.0.0.0:8788" ||
+		cfg.GitLabMRReview.Secret != "0123456789abcdef0123456789abcdef" ||
+		cfg.GitLabMRReview.LarkChatID != "oc_review" ||
+		cfg.GitLabMRReview.AllowedHost != "git.example.test" ||
+		cfg.GitLabMRReview.AllowedNamespace != "nova/games" ||
+		cfg.GitLabMRReview.MaxRequestBytes != 8192 {
+		t.Fatalf("GitLab tag review config = %#v", cfg.GitLabMRReview)
 	}
 }
 
@@ -161,5 +161,26 @@ func TestExplicitEmptyLarkChatAllowlistClearsConfig(t *testing.T) {
 	}
 	if len(cfg.Lark.AllowedChatIDs) != 0 {
 		t.Fatalf("AllowedChatIDs = %#v, want empty", cfg.Lark.AllowedChatIDs)
+	}
+}
+
+func TestLegacyReviewConfigAndNewOverrides(t *testing.T) {
+	t.Chdir(t.TempDir())
+	err := os.WriteFile(".ai-review.yaml", []byte("gitlab_tag_review:\n  enabled: true\n  lark_chat_id: old-chat\n  secret: old-secret\ngitlab_mr_review:\n  lark_chat_id: new-chat\n"), 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GITLAB_TAG_REVIEW__LISTEN_ADDR", "0.0.0.0:8788")
+	t.Setenv("GITLAB_TAG_REVIEW__SECRET", "legacy-env-secret")
+	t.Setenv("GITLAB_MR_REVIEW__SECRET", "")
+	t.Setenv("GITLAB_TAG_REVIEW__ENABLED", "true")
+	t.Setenv("GITLAB_MR_REVIEW__ENABLED", "false")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := cfg.GitLabMRReview
+	if r.Enabled || r.LarkChatID != "new-chat" || r.Secret != "" || r.ListenAddr != "0.0.0.0:8788" || r.MaxRequestBytes != 65536 {
+		t.Fatalf("review=%#v", r)
 	}
 }

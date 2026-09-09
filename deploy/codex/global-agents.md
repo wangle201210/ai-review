@@ -4,7 +4,7 @@
 
 Use collaboration subagents proactively when a task has at least two independent
 investigation tracks and parallel work can reduce end-to-end time. In particular,
-start multiple subagents for broad Tag reviews and production incident
+start multiple subagents for MR reviews with multiple independent change-impact paths and production incident
 investigations after the root agent has established the exact scope and paths.
 
 - Keep at most five subagents active at once on this server.

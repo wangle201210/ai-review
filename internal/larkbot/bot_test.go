@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wangle201210/ai-review/internal/tagreview"
+	"github.com/wangle201210/ai-review/internal/mrreview"
 )
 
 type sentMessage struct {
@@ -453,13 +453,13 @@ func TestBotBoundsSameThreadBacklog(t *testing.T) {
 		t.Fatalf("OpenStore() error = %v", err)
 	}
 	bot, err := NewBot(gateway, turner, store, BotConfig{
-		QueueSize:       2,
-		WorkerCount:     1,
-		RequireReply:    true,
-		BusyRetry:       time.Millisecond,
-		MaxPromptBytes:  4096,
-		TagReviewChatID: "chat-review",
-		Logger:          log.New(io.Discard, "", 0),
+		QueueSize:      2,
+		WorkerCount:    1,
+		RequireReply:   true,
+		BusyRetry:      time.Millisecond,
+		MaxPromptBytes: 4096,
+		ReviewChatID:   "chat-review",
+		Logger:         log.New(io.Discard, "", 0),
 	})
 	if err != nil {
 		t.Fatalf("NewBot() error = %v", err)
@@ -587,18 +587,18 @@ func TestBotPreservesMessageSessionAfterPolicyRecoveryFails(t *testing.T) {
 }
 
 func TestBotResumesIncompleteTurns(t *testing.T) {
-	for _, tagTask := range []bool{false, true} {
-		t.Run(fmt.Sprint("tag_task=", tagTask), func(t *testing.T) {
+	for _, mrTask := range []bool{false, true} {
+		t.Run(fmt.Sprint("mr_task=", mrTask), func(t *testing.T) {
 			gateway := &fakeGateway{parents: map[string]string{"alert-1": "panic"}}
 			turner := &fakeTurner{incompleteOnce: true}
 			bot, store := newTestBot(t, gateway, turner, true)
 			ctx := context.Background()
 			message := IncomingMessage{MessageID: "message-1", ChatID: "chat-review", ChatType: "group", ParentID: "alert-1", RootID: "alert-1", Text: "review"}
-			if tagTask {
-				bot.processTagReview(ctx, tagreview.Review{ProjectID: 42, ProjectPath: "nova/game-play/kraken", Tag: "v1", CommitSHA: "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7"})
+			if mrTask {
+				bot.processMRReview(ctx, mrreview.Review{ProjectID: 42, ProjectPath: "nova/game-play/kraken", MRIID: 17, HeadSHA: "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7"})
 				message.RootID = "sent-1"
 				message.ParentID = "sent-1"
-				gateway.setParent("sent-1", "Tag review")
+				gateway.setParent("sent-1", "MR review")
 			} else {
 				bot.process(ctx, message)
 			}
@@ -617,14 +617,14 @@ func TestBotResumesIncompleteTurns(t *testing.T) {
 			if len(requests) != 2 || requests[1].SessionID != "session-incomplete" {
 				t.Fatalf("requests = %#v", requests)
 			}
-			if tagTask && !strings.Contains(requests[1].Message, "$nova-tag-fund-risk-review") {
-				t.Fatal("Tag follow-up lost its review context")
+			if mrTask && !strings.Contains(requests[1].Message, "$nova-mr-impact-review") {
+				t.Fatal("MR follow-up lost its review context")
 			}
 		})
 	}
 }
 
-func TestBotProcessesTagReviewAndDeduplicatesDelivery(t *testing.T) {
+func TestBotProcessesMRReviewAndDeduplicatesDelivery(t *testing.T) {
 	gateway := &fakeGateway{notify: make(chan struct{}, 8)}
 	turner := &fakeTurner{}
 	bot, store := newTestBot(t, gateway, turner, true)
@@ -633,17 +633,21 @@ func TestBotProcessesTagReviewAndDeduplicatesDelivery(t *testing.T) {
 	defer cancel()
 	go bot.Run(ctx)
 
-	review := tagreview.Review{
-		ProjectID:   42,
-		ProjectName: "kraken",
-		ProjectPath: "nova/game-play/kraken",
-		ProjectURL:  "https://git.easycodesource.com/nova/game-play/kraken",
-		Tag:         "version/v2.65.5",
-		CommitSHA:   "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7",
+	review := mrreview.Review{
+		ProjectID:      42,
+		ProjectName:    "kraken",
+		ProjectPath:    "nova/game-play/kraken",
+		ProjectURL:     "https://git.easycodesource.com/nova/game-play/kraken",
+		MRIID:          17,
+		MRURL:          "https://git.easycodesource.com/nova/game-play/kraken/-/merge_requests/17",
+		SourceBranch:   "fix/bet",
+		TargetBranch:   "main",
+		MergeCommitSHA: "cf5bbc2e6a82ae844063eaabcde3fe040ac42c2a",
+		HeadSHA:        "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7",
 	}
-	duplicate, err := bot.EnqueueTagReview(ctx, review)
+	duplicate, err := bot.EnqueueMRReview(ctx, review)
 	if err != nil || duplicate {
-		t.Fatalf("EnqueueTagReview() = duplicate %t, error %v", duplicate, err)
+		t.Fatalf("EnqueueMRReview() = duplicate %t, error %v", duplicate, err)
 	}
 	waitForSends(t, gateway, 1)
 	waitForReplies(t, gateway, 1)
@@ -653,26 +657,15 @@ func TestBotProcessesTagReviewAndDeduplicatesDelivery(t *testing.T) {
 	if len(requests) != 1 || requests[0].SessionID != "" {
 		t.Fatalf("Codex requests = %#v", requests)
 	}
-	for _, expected := range []string{
-		"$nova-tag-fund-risk-review",
-		"公司自有且已授权仓库开展的防御性业务逻辑审计",
-		"version/v2.65.5",
-		"检查下注/撤销整个流程是否正常，是否没有过滤掉非法下注，比如金额为负等情况",
-		"检查策略的执行是否可能产生异常的结果，是否会出现让玩家可利用从而反复套现的问题",
-		"检查用户断线重连的相关逻辑，是否会导致用户的结算异常",
-		"可能存在的规则漏洞会导致资金损失的",
-		"规则漏洞可能是本身游戏玩法设计不合理，或者游戏的调控策略不合理导致的",
-		"检查是否存在可能触发空指针的逻辑",
-		"具体、可验证的复现步骤",
-		"隔离测试环境",
-	} {
+	for _, expected := range []string{"$nova-mr-impact-review", "nova/game-play/kraken", "\"mr_iid\": 17", "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7"} {
 		if !strings.Contains(requests[0].Message, expected) {
-			t.Fatalf("Codex prompt does not contain %q:\n%s", expected, requests[0].Message)
+			t.Fatalf("MR identity missing from prompt: %q", expected)
 		}
 	}
+
 	sends := gateway.sendSnapshot()
 	if len(sends) != 1 || sends[0].messageID != "sent-1" || sends[0].chatID != "chat-review" ||
-		sends[0].title != "Tag 资金风险审查已开始" {
+		sends[0].title != "MR 合并审查已开始" {
 		t.Fatalf("Lark sends = %#v", sends)
 	}
 	replies := gateway.replySnapshot()
@@ -682,25 +675,25 @@ func TestBotProcessesTagReviewAndDeduplicatesDelivery(t *testing.T) {
 		t.Fatalf("Lark replies = %#v, targets = %#v", replies, replyTargets)
 	}
 	threadKey := "chat-review:sent-1"
-	if sessionID, kind := store.Thread(threadKey); sessionID != "session-new" || kind != threadKindTagReview {
-		t.Fatalf("stored tag thread = session %q, kind %q", sessionID, kind)
+	if sessionID, kind := store.Thread(threadKey); sessionID != "session-new" || kind != threadKindMRReview {
+		t.Fatalf("stored MR thread = session %q, kind %q", sessionID, kind)
 	}
 
-	duplicate, err = bot.EnqueueTagReview(ctx, review)
+	duplicate, err = bot.EnqueueMRReview(ctx, review)
 	if err != nil || !duplicate {
-		t.Fatalf("duplicate EnqueueTagReview() = duplicate %t, error %v", duplicate, err)
+		t.Fatalf("duplicate EnqueueMRReview() = duplicate %t, error %v", duplicate, err)
 	}
 	time.Sleep(20 * time.Millisecond)
 	if got := len(turner.snapshot()); got != 1 {
 		t.Fatalf("duplicate triggered Codex; request count = %d", got)
 	}
 
-	gateway.setParent("tag-result-1", "Tag 审查结果：Codex result")
+	gateway.setParent("mr-result-1", "MR 审查结果：Codex result")
 	followUp := IncomingMessage{
 		MessageID: "follow-up-1",
 		ChatID:    "chat-review",
 		ChatType:  "group",
-		ParentID:  "tag-result-1",
+		ParentID:  "mr-result-1",
 		RootID:    "sent-1",
 		Text:      "继续解释这个风险",
 	}
@@ -712,18 +705,17 @@ func TestBotProcessesTagReviewAndDeduplicatesDelivery(t *testing.T) {
 	if len(requests) != 2 || requests[1].SessionID != "session-new" {
 		t.Fatalf("follow-up Codex requests = %#v", requests)
 	}
-	if !strings.Contains(requests[1].Message, "$nova-tag-fund-risk-review") ||
+	if !strings.Contains(requests[1].Message, "$nova-mr-impact-review") ||
 		strings.Contains(requests[1].Message, "$nova-incident-remediation") ||
-		!strings.Contains(requests[1].Message, "公司自有且已授权仓库开展的防御性业务逻辑审计") ||
 		!strings.Contains(requests[1].Message, "继续解释这个风险") {
 		t.Fatalf("follow-up prompt = %q", requests[1].Message)
 	}
-	if sessionID, kind := store.Thread(threadKey); sessionID != "session-new" || kind != threadKindTagReview {
-		t.Fatalf("tag thread after follow-up = session %q, kind %q", sessionID, kind)
+	if sessionID, kind := store.Thread(threadKey); sessionID != "session-new" || kind != threadKindMRReview {
+		t.Fatalf("MR thread after follow-up = session %q, kind %q", sessionID, kind)
 	}
 }
 
-func TestBotPreservesTagReviewSessionAfterPolicyRecoveryFails(t *testing.T) {
+func TestBotPreservesMRReviewSessionAfterPolicyRecoveryFails(t *testing.T) {
 	gateway := &fakeGateway{notify: make(chan struct{}, 8)}
 	turner := &fakeTurner{policyBlockedOnce: true}
 	bot, store := newTestBot(t, gateway, turner, true)
@@ -732,24 +724,28 @@ func TestBotPreservesTagReviewSessionAfterPolicyRecoveryFails(t *testing.T) {
 	defer cancel()
 	go bot.Run(ctx)
 
-	review := tagreview.Review{
-		ProjectID:   42,
-		ProjectName: "kraken",
-		ProjectPath: "nova/game-play/kraken",
-		ProjectURL:  "https://git.easycodesource.com/nova/game-play/kraken",
-		Tag:         "version/v2.65.5",
-		CommitSHA:   "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7",
+	review := mrreview.Review{
+		ProjectID:      42,
+		ProjectName:    "kraken",
+		ProjectPath:    "nova/game-play/kraken",
+		ProjectURL:     "https://git.easycodesource.com/nova/game-play/kraken",
+		MRIID:          17,
+		MRURL:          "https://git.easycodesource.com/nova/game-play/kraken/-/merge_requests/17",
+		SourceBranch:   "fix/bet",
+		TargetBranch:   "main",
+		MergeCommitSHA: "cf5bbc2e6a82ae844063eaabcde3fe040ac42c2a",
+		HeadSHA:        "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7",
 	}
-	if duplicate, err := bot.EnqueueTagReview(ctx, review); err != nil || duplicate {
-		t.Fatalf("EnqueueTagReview() = duplicate %t, error %v", duplicate, err)
+	if duplicate, err := bot.EnqueueMRReview(ctx, review); err != nil || duplicate {
+		t.Fatalf("EnqueueMRReview() = duplicate %t, error %v", duplicate, err)
 	}
 	waitForSends(t, gateway, 1)
 	waitForReplies(t, gateway, 1)
 	waitForProcessed(t, store, review.DedupKey())
 
 	threadKey := "chat-review:sent-1"
-	if sessionID, kind := store.Thread(threadKey); sessionID != "session-policy" || kind != threadKindTagReview {
-		t.Fatalf("policy-blocked tag thread = session %q, kind %q", sessionID, kind)
+	if sessionID, kind := store.Thread(threadKey); sessionID != "session-policy" || kind != threadKindMRReview {
+		t.Fatalf("policy-blocked MR thread = session %q, kind %q", sessionID, kind)
 	}
 	replies := gateway.replySnapshot()
 	if len(replies) != 1 || !strings.Contains(replies[0], "已自动恢复一次") ||
@@ -758,7 +754,7 @@ func TestBotPreservesTagReviewSessionAfterPolicyRecoveryFails(t *testing.T) {
 	}
 }
 
-func TestBotPreservesTagReviewSessionOnTimeout(t *testing.T) {
+func TestBotPreservesMRReviewSessionOnTimeout(t *testing.T) {
 	gateway := &fakeGateway{notify: make(chan struct{}, 8)}
 	turner := &fakeTurner{timeoutOnce: true}
 	bot, store := newTestBot(t, gateway, turner, true)
@@ -767,23 +763,27 @@ func TestBotPreservesTagReviewSessionOnTimeout(t *testing.T) {
 	defer cancel()
 	go bot.Run(ctx)
 
-	review := tagreview.Review{
-		ProjectID:   42,
-		ProjectName: "kraken",
-		ProjectPath: "nova/game-play/kraken",
-		ProjectURL:  "https://git.easycodesource.com/nova/game-play/kraken",
-		Tag:         "version/v2.65.5",
-		CommitSHA:   "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7",
+	review := mrreview.Review{
+		ProjectID:      42,
+		ProjectName:    "kraken",
+		ProjectPath:    "nova/game-play/kraken",
+		ProjectURL:     "https://git.easycodesource.com/nova/game-play/kraken",
+		MRIID:          17,
+		MRURL:          "https://git.easycodesource.com/nova/game-play/kraken/-/merge_requests/17",
+		SourceBranch:   "fix/bet",
+		TargetBranch:   "main",
+		MergeCommitSHA: "cf5bbc2e6a82ae844063eaabcde3fe040ac42c2a",
+		HeadSHA:        "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7",
 	}
-	if duplicate, err := bot.EnqueueTagReview(ctx, review); err != nil || duplicate {
-		t.Fatalf("EnqueueTagReview() = duplicate %t, error %v", duplicate, err)
+	if duplicate, err := bot.EnqueueMRReview(ctx, review); err != nil || duplicate {
+		t.Fatalf("EnqueueMRReview() = duplicate %t, error %v", duplicate, err)
 	}
 	waitForSends(t, gateway, 1)
 	waitForReplies(t, gateway, 1)
 	waitForProcessed(t, store, review.DedupKey())
 
-	if sessionID, kind := store.Thread("chat-review:sent-1"); sessionID != "session-timeout" || kind != threadKindTagReview {
-		t.Fatalf("timed-out tag thread = session %q, kind %q", sessionID, kind)
+	if sessionID, kind := store.Thread("chat-review:sent-1"); sessionID != "session-timeout" || kind != threadKindMRReview {
+		t.Fatalf("timed-out MR thread = session %q, kind %q", sessionID, kind)
 	}
 	replies := gateway.replySnapshot()
 	if len(replies) != 1 || !strings.Contains(replies[0], "会话已保留") ||
@@ -822,13 +822,13 @@ func newTestBotWithWorkers(
 		t.Fatalf("OpenStore() error = %v", err)
 	}
 	bot, err := NewBot(gateway, turner, store, BotConfig{
-		QueueSize:       4,
-		WorkerCount:     workerCount,
-		RequireReply:    requireReply,
-		BusyRetry:       time.Millisecond,
-		MaxPromptBytes:  4096,
-		TagReviewChatID: "chat-review",
-		Logger:          log.New(io.Discard, "", 0),
+		QueueSize:      4,
+		WorkerCount:    workerCount,
+		RequireReply:   requireReply,
+		BusyRetry:      time.Millisecond,
+		MaxPromptBytes: 4096,
+		ReviewChatID:   "chat-review",
+		Logger:         log.New(io.Discard, "", 0),
 	})
 	if err != nil {
 		t.Fatalf("NewBot() error = %v", err)
@@ -901,5 +901,19 @@ func waitForReplies(t *testing.T, gateway *fakeGateway, count int) {
 		case <-deadline.C:
 			t.Fatalf("reply count = %d, want %d", gateway.replyCount(), count)
 		}
+	}
+}
+
+func TestLegacyTagThreadStillResumesOriginalSkill(t *testing.T) {
+	gateway := &fakeGateway{parents: map[string]string{"old-tag": "旧 Tag 审查结果"}}
+	turner := &fakeTurner{}
+	bot, store := newTestBot(t, gateway, turner, true)
+	if err := store.CompleteThread("", "chat-review:old-tag", "old-session", threadKindTagReview); err != nil {
+		t.Fatal(err)
+	}
+	bot.process(context.Background(), IncomingMessage{MessageID: "follow-old", ChatID: "chat-review", ChatType: "group", ParentID: "old-tag", RootID: "old-tag", Text: "继续"})
+	requests := turner.snapshot()
+	if len(requests) != 1 || requests[0].SessionID != "old-session" || !strings.Contains(requests[0].Message, "$nova-tag-fund-risk-review") || strings.Contains(requests[0].Message, "$nova-mr-impact-review") {
+		t.Fatalf("requests=%#v", requests)
 	}
 }

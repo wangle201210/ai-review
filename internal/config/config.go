@@ -12,14 +12,14 @@ import (
 )
 
 type Config struct {
-	LLM             LLMConfig             `yaml:"llm"    json:"llm"`
-	VCS             VCSConfig             `yaml:"vcs"    json:"vcs"`
-	Agent           AgentConfig           `yaml:"agent"  json:"agent"`
-	Review          ReviewConfig          `yaml:"review" json:"review"`
-	Codex           CodexConfig           `yaml:"codex"  json:"codex"`
-	HTTP            HTTPConfig            `yaml:"http"   json:"http"`
-	Lark            LarkConfig            `yaml:"lark"   json:"lark"`
-	GitLabTagReview GitLabTagReviewConfig `yaml:"gitlab_tag_review" json:"gitlab_tag_review"`
+	LLM            LLMConfig            `yaml:"llm"    json:"llm"`
+	VCS            VCSConfig            `yaml:"vcs"    json:"vcs"`
+	Agent          AgentConfig          `yaml:"agent"  json:"agent"`
+	Review         ReviewConfig         `yaml:"review" json:"review"`
+	Codex          CodexConfig          `yaml:"codex"  json:"codex"`
+	HTTP           HTTPConfig           `yaml:"http"   json:"http"`
+	Lark           LarkConfig           `yaml:"lark"   json:"lark"`
+	GitLabMRReview GitLabMRReviewConfig `yaml:"gitlab_mr_review" json:"gitlab_mr_review"`
 }
 
 type LLMConfig struct {
@@ -90,7 +90,7 @@ type LarkConfig struct {
 	MaxPromptBytes      int      `yaml:"max_prompt_bytes"      json:"max_prompt_bytes"`
 }
 
-type GitLabTagReviewConfig struct {
+type GitLabMRReviewConfig struct {
 	Enabled          bool   `yaml:"enabled"           json:"enabled"`
 	ListenAddr       string `yaml:"listen_addr"       json:"listen_addr"`
 	Secret           string `yaml:"secret"            json:"secret"`
@@ -144,7 +144,7 @@ func Load() (*Config, error) {
 			BusyRetrySeconds:    5,
 			MaxPromptBytes:      48 * 1024,
 		},
-		GitLabTagReview: GitLabTagReviewConfig{
+		GitLabMRReview: GitLabMRReviewConfig{
 			ListenAddr:       "127.0.0.1:8788",
 			AllowedHost:      "git.easycodesource.com",
 			AllowedNamespace: "nova/game-play",
@@ -156,6 +156,14 @@ func Load() (*Config, error) {
 	for _, path := range []string{".ai-review.yaml", ".ai-review.yml", ".ai-review.json"} {
 		data, err := os.ReadFile(path)
 		if err == nil {
+			// Retain existing deployments' settings while changing the event to MR merge.
+			// Explicit new fields override the legacy values below.
+			legacy := struct {
+				Review *GitLabMRReviewConfig `yaml:"gitlab_tag_review"`
+			}{Review: &cfg.GitLabMRReview}
+			if err := yaml.Unmarshal(data, &legacy); err != nil {
+				return nil, fmt.Errorf("parse %s: %w", path, err)
+			}
 			if err := yaml.Unmarshal(data, cfg); err != nil {
 				return nil, fmt.Errorf("parse %s: %w", path, err)
 			}
@@ -200,6 +208,14 @@ func applyEnvOverrides(cfg *Config) {
 		parts := strings.SplitN(kv, "=", 2)
 		if len(parts) == 2 {
 			envMap[parts[0]] = parts[1]
+		}
+	}
+	for key, value := range envMap {
+		if suffix, ok := strings.CutPrefix(key, "GITLAB_TAG_REVIEW__"); ok {
+			newKey := "GITLAB_MR_REVIEW__" + suffix
+			if _, exists := envMap[newKey]; !exists {
+				envMap[newKey] = value
+			}
 		}
 	}
 
@@ -256,23 +272,23 @@ func applyEnvOverrides(cfg *Config) {
 		"LARK__MAX_PROMPT_BYTES": func(v string) {
 			cfg.Lark.MaxPromptBytes, _ = strconv.Atoi(v)
 		},
-		"GITLAB_TAG_REVIEW__ENABLED": func(v string) {
-			cfg.GitLabTagReview.Enabled = parseBool(v)
+		"GITLAB_MR_REVIEW__ENABLED": func(v string) {
+			cfg.GitLabMRReview.Enabled = parseBool(v)
 		},
-		"GITLAB_TAG_REVIEW__LISTEN_ADDR": func(v string) {
-			cfg.GitLabTagReview.ListenAddr = v
+		"GITLAB_MR_REVIEW__LISTEN_ADDR": func(v string) {
+			cfg.GitLabMRReview.ListenAddr = v
 		},
-		"GITLAB_TAG_REVIEW__LARK_CHAT_ID": func(v string) {
-			cfg.GitLabTagReview.LarkChatID = v
+		"GITLAB_MR_REVIEW__LARK_CHAT_ID": func(v string) {
+			cfg.GitLabMRReview.LarkChatID = v
 		},
-		"GITLAB_TAG_REVIEW__ALLOWED_HOST": func(v string) {
-			cfg.GitLabTagReview.AllowedHost = v
+		"GITLAB_MR_REVIEW__ALLOWED_HOST": func(v string) {
+			cfg.GitLabMRReview.AllowedHost = v
 		},
-		"GITLAB_TAG_REVIEW__ALLOWED_NAMESPACE": func(v string) {
-			cfg.GitLabTagReview.AllowedNamespace = v
+		"GITLAB_MR_REVIEW__ALLOWED_NAMESPACE": func(v string) {
+			cfg.GitLabMRReview.AllowedNamespace = v
 		},
-		"GITLAB_TAG_REVIEW__MAX_REQUEST_BYTES": func(v string) {
-			cfg.GitLabTagReview.MaxRequestBytes, _ = strconv.ParseInt(v, 10, 64)
+		"GITLAB_MR_REVIEW__MAX_REQUEST_BYTES": func(v string) {
+			cfg.GitLabMRReview.MaxRequestBytes, _ = strconv.ParseInt(v, 10, 64)
 		},
 	}
 
@@ -294,8 +310,8 @@ func applyEnvOverrides(cfg *Config) {
 	if value, exists := envMap["LARK__ALLOWED_CHAT_IDS"]; exists {
 		cfg.Lark.AllowedChatIDs = splitCommaSeparated(value)
 	}
-	if value, exists := envMap["GITLAB_TAG_REVIEW__SECRET"]; exists {
-		cfg.GitLabTagReview.Secret = value
+	if value, exists := envMap["GITLAB_MR_REVIEW__SECRET"]; exists {
+		cfg.GitLabMRReview.Secret = value
 	}
 }
 

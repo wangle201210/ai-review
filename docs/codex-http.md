@@ -11,7 +11,7 @@ HTTP 层只处理 JSON、可选鉴权、请求大小、并发、超时、Codex �
 `session_id`。请求中的 `message` 会原样写入 Codex CLI 的标准输入；服务不会解析
 应用、时间、集群或日志，不会查询 VictoriaLogs，也不会调用 GitLab API。
 
-告警定位、修复和 Tag 审查流程由 Codex skill 负责。本项目包含六个可部署 skills：
+告警定位、修复和 MR 审查流程由 Codex skill 负责。本项目包含七个可部署 skills：
 [`nova-incident-remediation`](../skills/nova-incident-remediation/SKILL.md) 负责编排，
 [`nova-victorialogs-query`](../skills/nova-victorialogs-query/SKILL.md) 负责 Nova
 环境解析和日志查询约定，
@@ -19,8 +19,9 @@ HTTP 层只处理 JSON、可选鉴权、请求大小、并发、超时、Codex �
 VictoriaLogs HTTP API 能力，
 [`nova-game-play-code-analysis`](../skills/nova-game-play-code-analysis/SKILL.md)
 负责准备项目并分析源码，
-[`nova-tag-fund-risk-review`](../skills/nova-tag-fund-risk-review/SKILL.md) 负责隔离并
-审查 Tag 对应的完整源码，
+[`nova-mr-impact-review`](../skills/nova-mr-impact-review/SKILL.md) 检查已合并 MR 的变更
+及受影响逻辑，[`nova-tag-fund-risk-review`](../skills/nova-tag-fund-risk-review/SKILL.md)
+保留用于历史 Tag 线程续接，
 [`jenkins-trigger-build`](../skills/jenkins-trigger-build/SKILL.md) 负责预览并触发
 Nova Jenkins 构建。将它们安装到运行 HTTP 服务的同一用户下：
 
@@ -31,6 +32,7 @@ cp -R \
   skills/jenkins-trigger-build \
   skills/nova-game-play-code-analysis \
   skills/nova-incident-remediation \
+  skills/nova-mr-impact-review \
   skills/nova-tag-fund-risk-review \
   skills/nova-victorialogs-query \
   skills/victorialogs-query \
@@ -46,7 +48,7 @@ cp -R \
 multi_agent = true
 ```
 
-该全局指令要求复杂 Tag Review 和事故调查最多使用五个并行 subagents，同时将共享
+该全局指令要求复杂 MR 影响范围审查 和事故调查最多使用五个并行 subagents，同时将共享
 checkout 保持为只读，并由主代理统一修改、测试和执行外部写操作。若目标文件已存在，
 应合并这段规则而不是直接覆盖已有全局指令。
 
@@ -60,6 +62,8 @@ Git 权限及 GitLab push options 推送分支并创建 MR。这个流程不需�
 Jenkins skill 是独立的外部操作能力。事故修复、推送分支或创建 MR 本身不会触发
 Jenkins；只有用户明确要求 build、deploy、rebuild 或 release 时，Codex 才能在
 无网络预览后提交构建请求。未指定构建分支时使用 `main`。
+
+MR 元数据的只读 API 凭据配置见 [MR 合并审查](gitlab-mr-review.md)。
 
 ### Jenkins 凭据
 

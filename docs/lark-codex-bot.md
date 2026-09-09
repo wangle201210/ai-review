@@ -24,13 +24,13 @@
 本地或隔离环境中的具体复现步骤。第二次仍被拦截时，机器人保存 session 并提示用户
 在原线程发送“继续”。
 
-GitLab Tag 审查同样建立 Lark 线程和 session 映射。机器人把最终审查结果回复到
-“Tag 资金风险审查已开始”消息下；用户回复线程内任意消息并 `@机器人` 时，会恢复
-原 Tag 审查 session，并继续使用 `$nova-tag-fund-risk-review`，不会进入事故修复
-流程。不同 Tag 审查使用不同 session。
+GitLab MR 审查同样建立 Lark 线程和 session 映射。机器人把最终审查结果回复到
+“MR 合并审查已开始”消息下；用户回复线程内任意消息并 `@机器人` 时，会恢复
+原 MR 审查 session，并继续使用 `$nova-mr-impact-review`，不会进入事故修复
+流程。不同 MR 审查使用不同 session。
 
 服务默认运行五个 Codex worker。不同群或不同根消息可以并行执行；同一根消息通过
-线程顺序锁保持串行，前一轮保存 `session_id` 后下一轮才开始。启用 GitLab Tag
+线程顺序锁保持串行，前一轮保存 `session_id` 后下一轮才开始。启用 GitLab MR
 审查后，Webhook 任务也使用同一 worker 池。队列满时群消息会提示用户稍后重试，
 Webhook 返回 `429`。
 
@@ -93,7 +93,7 @@ LARK__CODEX_AUTH_TOKEN=
 LARK__QUEUE_SIZE=32
 LARK__WORKER_COUNT=5
 LARK__REQUIRE_REPLY=true
-GITLAB_TAG_REVIEW__ENABLED=false
+GITLAB_MR_REVIEW__ENABLED=false
 ```
 
 服务文件可以直接使用
@@ -149,8 +149,8 @@ systemctl enable --now ai-review-lark-codex.service
 | `LARK__BUSY_RETRY_SECONDS` | `5` | Codex 返回 `409/429` 后的重试间隔 |
 | `LARK__MAX_PROMPT_BYTES` | `49152` | 合成提示词的最大字节数 |
 
-GitLab Tag 审查配置见 [`gitlab-tag-review.md`](gitlab-tag-review.md)。目标群由
-`GITLAB_TAG_REVIEW__LARK_CHAT_ID` 独立配置，因此后续可以在不改变日常 Bug 修复群
+GitLab MR 审查配置见 [`gitlab-tag-review.md`](gitlab-tag-review.md)。目标群由
+`GITLAB_MR_REVIEW__LARK_CHAT_ID` 独立配置，因此后续可以在不改变日常 Bug 修复群
 的情况下切换到专用审查群。
 
 状态文件以 `0600` 原子写入。已处理的消息 ID 和 Tag 事件保留 7 天用于去重；线程

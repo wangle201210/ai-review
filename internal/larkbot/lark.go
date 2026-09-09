@@ -15,25 +15,25 @@ import (
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
-	"github.com/wangle201210/ai-review/internal/tagreview"
+	"github.com/wangle201210/ai-review/internal/mrreview"
 )
 
 type ServiceConfig struct {
-	AppID           string
-	AppSecret       string
-	BaseURL         string
-	AllowedChatIDs  []string
-	StatePath       string
-	QueueSize       int
-	WorkerCount     int
-	RequireReply    bool
-	CodexURL        string
-	CodexAuthToken  string
-	CodexTimeout    time.Duration
-	BusyRetry       time.Duration
-	MaxPromptBytes  int
-	TagReviewChatID string
-	Logger          *log.Logger
+	AppID          string
+	AppSecret      string
+	BaseURL        string
+	AllowedChatIDs []string
+	StatePath      string
+	QueueSize      int
+	WorkerCount    int
+	RequireReply   bool
+	CodexURL       string
+	CodexAuthToken string
+	CodexTimeout   time.Duration
+	BusyRetry      time.Duration
+	MaxPromptBytes int
+	ReviewChatID   string
+	Logger         *log.Logger
 }
 
 type Service struct {
@@ -103,13 +103,13 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 
 	gateway := &larkGateway{client: apiClient, channel: larkChannel}
 	bot, err := NewBot(gateway, codexClient, store, BotConfig{
-		QueueSize:       cfg.QueueSize,
-		WorkerCount:     cfg.WorkerCount,
-		RequireReply:    cfg.RequireReply,
-		BusyRetry:       cfg.BusyRetry,
-		MaxPromptBytes:  cfg.MaxPromptBytes,
-		TagReviewChatID: cfg.TagReviewChatID,
-		Logger:          cfg.Logger,
+		QueueSize:      cfg.QueueSize,
+		WorkerCount:    cfg.WorkerCount,
+		RequireReply:   cfg.RequireReply,
+		BusyRetry:      cfg.BusyRetry,
+		MaxPromptBytes: cfg.MaxPromptBytes,
+		ReviewChatID:   cfg.ReviewChatID,
+		Logger:         cfg.Logger,
 	})
 	if err != nil {
 		return nil, err
@@ -124,8 +124,8 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	return service, nil
 }
 
-func (s *Service) EnqueueTagReview(ctx context.Context, review tagreview.Review) (bool, error) {
-	return s.bot.EnqueueTagReview(ctx, review)
+func (s *Service) EnqueueMRReview(ctx context.Context, review mrreview.Review) (bool, error) {
+	return s.bot.EnqueueMRReview(ctx, review)
 }
 
 func (s *Service) Run(ctx context.Context) error {
