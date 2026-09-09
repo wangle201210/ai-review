@@ -1,8 +1,9 @@
 # GitLab MR 合并后增量审查
 
 `ai-review serve-lark-codex` 接收 `Merge Request Hook`，只在
-`object_attributes.action=merge` 且 `state=merged` 时触发审查。MR 创建、更新、
-审批、关闭以及 Tag Push 事件均返回 `200 ignored`，不会调用 Codex。
+`object_attributes.action=merge`、`state=merged` 且 `target_branch=main` 时触发审查。
+合并到其他分支（包括从 `main` 合并到其他分支）、MR 创建、更新、审批、关闭以及
+Tag Push 事件均返回 `200 ignored`，不会入队或调用 Codex。目标分支按 `main` 精确匹配。
 
 Webhook 只校验事件、排队和通知；源码准备、差异核验和分析由
 [`nova-mr-impact-review`](../skills/nova-mr-impact-review/SKILL.md) 完成。

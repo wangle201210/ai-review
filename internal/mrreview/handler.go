@@ -163,6 +163,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, response{Status: "ignored", Reason: "mr_not_merged"})
 		return
 	}
+	if payload.Attributes.TargetBranch != "main" {
+		writeJSON(w, http.StatusOK, response{Status: "ignored", Reason: "target_branch_not_main"})
+		return
+	}
 
 	review, err := h.reviewFromPayload(payload)
 	if err != nil {

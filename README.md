@@ -235,7 +235,7 @@ Lark 开发者后台所需事件、权限、环境变量、systemd 配置和群�
 
 ## GitLab MR 合并后审查
 
-`serve-lark-codex` 接收 GitLab `Merge Request Hook`，仅 MR 被合并时触发。
+`serve-lark-codex` 接收 GitLab `Merge Request Hook`，仅 MR 被合并到 `main` 时触发。
 Webhook 立即返回 `202`，任务进入现有 worker 池。Codex 核验 MR 的固定差异版本和
 实际合并结果，检查变更逻辑及其影响到的调用路径、状态、配置和依赖，不全仓扫描。
 MR 创建、更新、审批、关闭和 Tag 事件不会触发审查；同一 MR 的重复事件去重。

@@ -93,6 +93,35 @@ func TestHandlerIgnoresEventsOtherThanMRMerge(t *testing.T) {
 	}
 }
 
+func TestHandlerOnlyQueuesMergesIntoMain(t *testing.T) {
+	for _, target := range []string{"main", "develop", "release/v1", "master", "Main", "main-feature", ""} {
+		t.Run("target="+target, func(t *testing.T) {
+			var queued []Review
+			h := newTestHandler(t, func(_ context.Context, review Review) (bool, error) {
+				queued = append(queued, review)
+				return false, nil
+			})
+			payload := strings.Replace(validPayload(), `"target_branch":"main"`, `"target_branch":"`+target+`"`, 1)
+			if target != "main" {
+				// A merge from main into another branch must not trigger a review.
+				payload = strings.Replace(payload, `"source_branch":"fix/bet"`, `"source_branch":"main"`, 1)
+			}
+			w := performWebhook(h, payload, testSecret, "Merge Request Hook")
+			var body response
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if target == "main" {
+				if w.Code != http.StatusAccepted || len(queued) != 1 || queued[0].TargetBranch != "main" {
+					t.Fatalf("main merge: status=%d queued=%#v", w.Code, queued)
+				}
+			} else if w.Code != http.StatusOK || body.Status != "ignored" || body.Reason != "target_branch_not_main" || len(queued) != 0 {
+				t.Fatalf("other target: status=%d body=%#v queued=%#v", w.Code, body, queued)
+			}
+		})
+	}
+}
+
 func TestHandlerRejectsMalformedAndOutOfScopeMerge(t *testing.T) {
 	h := newTestHandler(t, func(context.Context, Review) (bool, error) { t.Fatal("invalid event enqueued"); return false, nil })
 	tests := []struct{ name, from, to string }{
