@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -95,6 +96,25 @@ func TestHandlerTimeoutReturnsPreservedSession(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 	if body.Error.Code != "codex_timeout" || body.SessionID != "thread-timeout" {
+		t.Fatalf("response = %#v", body)
+	}
+}
+
+func TestHandlerPolicyFailureReturnsPreservedSession(t *testing.T) {
+	handler := newTestHandler(t, executorFunc(func(_ context.Context, _ codex.Request) (*codex.Result, error) {
+		return &codex.Result{SessionID: "thread-policy"}, fmt.Errorf("%w: still blocked", codex.ErrCyberPolicyBlocked)
+	}), 1)
+
+	response := performRequest(handler, `{"message":"review"}`, testToken)
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+
+	var body errorEnvelope
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Error.Code != "codex_policy_blocked" || body.SessionID != "thread-policy" {
 		t.Fatalf("response = %#v", body)
 	}
 }

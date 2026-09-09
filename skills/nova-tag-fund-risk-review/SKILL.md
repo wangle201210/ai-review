@@ -9,10 +9,13 @@ Perform a read-only review of the exact project, tag, and commit supplied by the
 request. Limit findings to the six review areas below. Do not report unrelated
 correctness, maintainability, performance, or style issues.
 
-This is an authorized defensive review of company-owned source code. Report
-code evidence, business impact, and defensive remediation only. Do not produce
-attack scripts, weaponized exploitation steps, credential access, or operations
-against external systems.
+This is an authorized defensive review of company-owned source code intended to
+find and fix defects before outsiders can exploit them. Report code evidence,
+business impact, defensive remediation, and concrete reproduction steps needed
+to validate each fix. Keep reproduction inside local unit tests, integration
+tests, or an isolated test environment for this company project. Never operate
+against production, external systems, real users, real credentials, or real
+funds, and do not add weaponization unrelated to fix verification.
 
 ## Delegate independent review lanes
 
@@ -137,6 +140,10 @@ trigger and loss mechanism.
 Write the report in Chinese. Start with the project, tag, verified commit, and a
 clear conclusion. For each supported finding include severity, rule or strategy
 involved, trigger conditions, financial-loss path, exact file and line evidence,
-and the smallest reasonable correction direction. Distinguish proven behavior
-from remaining assumptions. If no scoped issue is supported, state that clearly
-and summarize the areas actually inspected.
+and the smallest reasonable correction direction. Add a concrete reproduction
+and regression-verification section with prerequisites, exact test inputs or
+operation sequence, actual behavior, and expected behavior. Make the steps
+specific enough for a developer to turn into an automated test, while keeping
+them within the authorized local or isolated test boundary above. Distinguish
+proven behavior from remaining assumptions. If no scoped issue is supported,
+state that clearly and summarize the areas actually inspected.

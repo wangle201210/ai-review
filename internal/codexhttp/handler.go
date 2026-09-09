@@ -161,6 +161,26 @@ func (h *Handler) handleTurn(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, context.Canceled) {
 			return
 		}
+		if errors.Is(err, codex.ErrCyberPolicyBlocked) {
+			sessionID := request.SessionID
+			if result != nil && codex.ValidSessionID(result.SessionID) {
+				sessionID = result.SessionID
+			}
+			h.logger.Printf(
+				"[codex-http] cybersecurity policy recovery exhausted session_id=%q duration=%s session_preserved=%t",
+				sessionID,
+				time.Since(startedAt).Round(time.Millisecond),
+				sessionID != "",
+			)
+			writeErrorWithSession(
+				w,
+				http.StatusBadGateway,
+				"codex_policy_blocked",
+				"Codex response remained blocked after automatic recovery",
+				sessionID,
+			)
+			return
+		}
 		h.logger.Printf("[codex-http] request failed session_id=%q: %v", request.SessionID, err)
 		writeError(w, http.StatusBadGateway, "codex_failed", "Codex execution failed")
 		return

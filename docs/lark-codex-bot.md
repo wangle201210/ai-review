@@ -19,6 +19,11 @@
 一条新的消息（例如“继续”）。机器人不会自动重跑；只有用户明确发送新消息后，
 下一次调用才会通过 `codex exec resume` 继续原 session。
 
+如果 Codex 最终回答触发 `flagged for possible cybersecurity risk`，Codex HTTP 网关
+会自动恢复原 session 一次，强调这是公司自有授权项目的防御性检查，并继续要求给出
+本地或隔离环境中的具体复现步骤。第二次仍被拦截时，机器人保存 session 并提示用户
+在原线程发送“继续”。
+
 GitLab Tag 审查同样建立 Lark 线程和 session 映射。机器人把最终审查结果回复到
 “Tag 资金风险审查已开始”消息下；用户回复线程内任意消息并 `@机器人` 时，会恢复
 原 Tag 审查 session，并继续使用 `$nova-tag-fund-risk-review`，不会进入事故修复

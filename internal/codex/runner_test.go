@@ -235,6 +235,160 @@ printf '%s\n' \
 	}
 }
 
+func TestRunnerAutomaticallyResumesCyberPolicyFailure(t *testing.T) {
+	tempDir := t.TempDir()
+	fakeCodex := filepath.Join(tempDir, "codex")
+	script := `#!/bin/sh
+case " $* " in
+  *" exec resume "*)
+    cat >received-recovery-message
+    printf '%s\n' \
+      '{"type":"item.completed","item":{"type":"agent_message","text":"recovered report"}}' \
+      '{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":6,"output_tokens":2,"reasoning_output_tokens":0}}'
+    ;;
+  *)
+    cat >received-initial-message
+    printf '%s\n' \
+      '{"type":"thread.started","thread_id":"019abcde-1234-7000-8000-0123456789ab"}' \
+      '{"type":"turn.failed","error":{"message":"This content was flagged for possible cybersecurity risk. If this seems wrong, try rephrasing your request."}}'
+    exit 1
+    ;;
+esac
+`
+	if err := os.WriteFile(fakeCodex, []byte(script), 0o700); err != nil {
+		t.Fatalf("write fake codex: %v", err)
+	}
+
+	var logs bytes.Buffer
+	runner, err := NewRunner(RunnerConfig{
+		Binary:  fakeCodex,
+		WorkDir: tempDir,
+		Sandbox: "read-only",
+		Timeout: time.Second,
+		Logger:  log.New(&logs, "", 0),
+	})
+	if err != nil {
+		t.Fatalf("NewRunner() error = %v", err)
+	}
+
+	result, err := runner.Execute(context.Background(), Request{Message: "review company project"})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if result.SessionID != "019abcde-1234-7000-8000-0123456789ab" || result.Message != "recovered report" {
+		t.Fatalf("Execute() result = %#v", result)
+	}
+	if result.Usage.InputTokens != 8 || result.Usage.OutputTokens != 2 {
+		t.Fatalf("Execute() usage = %#v", result.Usage)
+	}
+	recoveryMessage, err := os.ReadFile(filepath.Join(tempDir, "received-recovery-message"))
+	if err != nil {
+		t.Fatalf("read recovery message: %v", err)
+	}
+	for _, expected := range []string{
+		"公司自有且已明确授权的项目",
+		"具体、可验证的复现步骤",
+		"本地单元测试、集成测试或隔离测试环境",
+	} {
+		if !strings.Contains(string(recoveryMessage), expected) {
+			t.Fatalf("recovery message does not contain %q:\n%s", expected, recoveryMessage)
+		}
+	}
+	if !strings.Contains(logs.String(), "auto-resuming attempt=1/1") ||
+		!strings.Contains(logs.String(), `resume_session_id="019abcde-1234-7000-8000-0123456789ab"`) {
+		t.Fatalf("logs do not describe policy recovery:\n%s", logs.String())
+	}
+}
+
+func TestRunnerStopsAfterOneCyberPolicyRecovery(t *testing.T) {
+	tempDir := t.TempDir()
+	fakeCodex := filepath.Join(tempDir, "codex")
+	script := `#!/bin/sh
+count=0
+if [ -f invocation-count ]; then
+  count=$(cat invocation-count)
+fi
+count=$((count + 1))
+printf '%s' "$count" >invocation-count
+cat >/dev/null
+printf '%s\n' \
+  '{"type":"thread.started","thread_id":"019abcde-1234-7000-8000-0123456789ab"}' \
+  '{"type":"turn.failed","error":{"message":"This content was flagged for possible cybersecurity risk."}}'
+exit 1
+`
+	if err := os.WriteFile(fakeCodex, []byte(script), 0o700); err != nil {
+		t.Fatalf("write fake codex: %v", err)
+	}
+
+	runner, err := NewRunner(RunnerConfig{
+		Binary:  fakeCodex,
+		WorkDir: tempDir,
+		Sandbox: "read-only",
+		Timeout: time.Second,
+		Logger:  log.New(io.Discard, "", 0),
+	})
+	if err != nil {
+		t.Fatalf("NewRunner() error = %v", err)
+	}
+
+	result, err := runner.Execute(context.Background(), Request{Message: "review"})
+	if !errors.Is(err, ErrCyberPolicyBlocked) {
+		t.Fatalf("Execute() error = %v, want ErrCyberPolicyBlocked", err)
+	}
+	if result == nil || result.SessionID != "019abcde-1234-7000-8000-0123456789ab" {
+		t.Fatalf("Execute() result = %#v, want preserved session", result)
+	}
+	count, err := os.ReadFile(filepath.Join(tempDir, "invocation-count"))
+	if err != nil {
+		t.Fatalf("read invocation count: %v", err)
+	}
+	if string(count) != "2" {
+		t.Fatalf("Codex invocation count = %s, want 2", count)
+	}
+}
+
+func TestRunnerDoesNotRecoverUnrelatedTurnFailure(t *testing.T) {
+	tempDir := t.TempDir()
+	fakeCodex := filepath.Join(tempDir, "codex")
+	script := `#!/bin/sh
+printf x >>invocations
+cat >/dev/null
+printf '%s\n' \
+  '{"type":"thread.started","thread_id":"019abcde-1234-7000-8000-0123456789ab"}' \
+  '{"type":"turn.failed","error":{"message":"model unavailable"}}'
+exit 1
+`
+	if err := os.WriteFile(fakeCodex, []byte(script), 0o700); err != nil {
+		t.Fatalf("write fake codex: %v", err)
+	}
+
+	runner, err := NewRunner(RunnerConfig{
+		Binary:  fakeCodex,
+		WorkDir: tempDir,
+		Sandbox: "read-only",
+		Timeout: time.Second,
+		Logger:  log.New(io.Discard, "", 0),
+	})
+	if err != nil {
+		t.Fatalf("NewRunner() error = %v", err)
+	}
+
+	result, err := runner.Execute(context.Background(), Request{Message: "review"})
+	if err == nil || errors.Is(err, ErrCyberPolicyBlocked) || !strings.Contains(err.Error(), "model unavailable") {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if result == nil || result.SessionID == "" {
+		t.Fatalf("Execute() result = %#v, want preserved session", result)
+	}
+	invocations, err := os.ReadFile(filepath.Join(tempDir, "invocations"))
+	if err != nil {
+		t.Fatalf("read invocations: %v", err)
+	}
+	if string(invocations) != "x" {
+		t.Fatalf("Codex invocations = %q, want one", invocations)
+	}
+}
+
 func TestRunnerTimeoutPreservesStartedSession(t *testing.T) {
 	tempDir := t.TempDir()
 	fakeCodex := filepath.Join(tempDir, "codex")

@@ -175,6 +175,16 @@ session_busy`。达到全局并发上限时返回 `429 server_busy`。
 服务不会自动重跑超时任务。调用方应保存这个 ID，并仅在用户明确发起下一条消息时
 将它作为 `session_id` 传回。若超时发生在 session 创建之前，响应不包含该字段。
 
+当结构化 `turn.failed` 事件包含 `flagged for possible cybersecurity risk` 时，
+服务会自动使用该 turn 的 `thread_id` 执行一次 `codex exec resume`。恢复提示会说明
+这是公司自有且已授权项目的防御性检查，并要求把具体复现限定在本地单元测试、集成
+测试或隔离测试环境。自动恢复与第一次执行共享同一个 `CODEX__TIMEOUT_SECONDS` 总
+时限，不会无限重试。
+
+如果自动恢复后仍被相同分类拦截，服务返回 `502 codex_policy_blocked`，并在已经
+创建 session 时附带 `session_id`。Lark 调用方会保存该 ID，让用户能够在原线程明确
+发送新消息继续。其他 Codex 失败不会触发这种自动恢复。
+
 ## 查看 Codex 输出
 
 服务会把 Codex CLI 的原始 JSONL stdout 事件和 stderr 实时写入自身日志。每行带有

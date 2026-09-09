@@ -94,10 +94,11 @@ func (g *fakeGateway) sendSnapshot() []sentMessage {
 }
 
 type fakeTurner struct {
-	mu          sync.Mutex
-	requests    []TurnRequest
-	busyOnce    bool
-	timeoutOnce bool
+	mu                sync.Mutex
+	requests          []TurnRequest
+	busyOnce          bool
+	timeoutOnce       bool
+	policyBlockedOnce bool
 }
 
 type concurrentTurner struct {
@@ -162,6 +163,15 @@ func (t *fakeTurner) Turn(_ context.Context, request TurnRequest) (*TurnResponse
 			Code:       "codex_timeout",
 			Message:    "Codex request timed out",
 			SessionID:  "session-timeout",
+		}
+	}
+	if t.policyBlockedOnce {
+		t.policyBlockedOnce = false
+		return nil, &TurnError{
+			StatusCode: 502,
+			Code:       "codex_policy_blocked",
+			Message:    "Codex response remained blocked after automatic recovery",
+			SessionID:  "session-policy",
 		}
 	}
 	sessionID := request.SessionID
@@ -536,6 +546,41 @@ func TestBotPreservesFirstSessionOnTimeoutAndResumesAfterNewMessage(t *testing.T
 	}
 }
 
+func TestBotPreservesMessageSessionAfterPolicyRecoveryFails(t *testing.T) {
+	gateway := &fakeGateway{
+		parents: map[string]string{"alert-1": "panic"},
+		notify:  make(chan struct{}, 8),
+	}
+	turner := &fakeTurner{policyBlockedOnce: true}
+	bot, store := newTestBot(t, gateway, turner, true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go bot.Run(ctx)
+
+	message := IncomingMessage{
+		MessageID: "message-1",
+		ChatID:    "chat-1",
+		ChatType:  "group",
+		ParentID:  "alert-1",
+		RootID:    "alert-1",
+		Text:      "分析问题",
+	}
+	if err := bot.Handle(ctx, message); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	waitForReplies(t, gateway, 2)
+
+	if got := store.Session("chat-1:alert-1"); got != "session-policy" {
+		t.Fatalf("stored session = %q, want session-policy", got)
+	}
+	replies := gateway.replySnapshot()
+	if !strings.Contains(replies[len(replies)-1], "已自动恢复一次") ||
+		!strings.Contains(replies[len(replies)-1], "会话已保留") {
+		t.Fatalf("policy-blocked reply = %#v", replies)
+	}
+}
+
 func TestBotProcessesTagReviewAndDeduplicatesDelivery(t *testing.T) {
 	gateway := &fakeGateway{notify: make(chan struct{}, 8)}
 	turner := &fakeTurner{}
@@ -575,6 +620,8 @@ func TestBotProcessesTagReviewAndDeduplicatesDelivery(t *testing.T) {
 		"可能存在的规则漏洞会导致资金损失的",
 		"规则漏洞可能是本身游戏玩法设计不合理，或者游戏的调控策略不合理导致的",
 		"检查是否存在可能触发空指针的逻辑",
+		"具体、可验证的复现步骤",
+		"隔离测试环境",
 	} {
 		if !strings.Contains(requests[0].Message, expected) {
 			t.Fatalf("Codex prompt does not contain %q:\n%s", expected, requests[0].Message)
@@ -630,6 +677,41 @@ func TestBotProcessesTagReviewAndDeduplicatesDelivery(t *testing.T) {
 	}
 	if sessionID, kind := store.Thread(threadKey); sessionID != "session-new" || kind != threadKindTagReview {
 		t.Fatalf("tag thread after follow-up = session %q, kind %q", sessionID, kind)
+	}
+}
+
+func TestBotPreservesTagReviewSessionAfterPolicyRecoveryFails(t *testing.T) {
+	gateway := &fakeGateway{notify: make(chan struct{}, 8)}
+	turner := &fakeTurner{policyBlockedOnce: true}
+	bot, store := newTestBot(t, gateway, turner, true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go bot.Run(ctx)
+
+	review := tagreview.Review{
+		ProjectID:   42,
+		ProjectName: "kraken",
+		ProjectPath: "nova/game-play/kraken",
+		ProjectURL:  "https://git.easycodesource.com/nova/game-play/kraken",
+		Tag:         "version/v2.65.5",
+		CommitSHA:   "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7",
+	}
+	if duplicate, err := bot.EnqueueTagReview(ctx, review); err != nil || duplicate {
+		t.Fatalf("EnqueueTagReview() = duplicate %t, error %v", duplicate, err)
+	}
+	waitForSends(t, gateway, 1)
+	waitForReplies(t, gateway, 1)
+	waitForProcessed(t, store, review.DedupKey())
+
+	threadKey := "chat-review:sent-1"
+	if sessionID, kind := store.Thread(threadKey); sessionID != "session-policy" || kind != threadKindTagReview {
+		t.Fatalf("policy-blocked tag thread = session %q, kind %q", sessionID, kind)
+	}
+	replies := gateway.replySnapshot()
+	if len(replies) != 1 || !strings.Contains(replies[0], "已自动恢复一次") ||
+		!strings.Contains(replies[0], "会话已保留") || !strings.Contains(replies[0], "@ 机器人发送“继续”") {
+		t.Fatalf("policy-blocked reply = %#v", replies)
 	}
 }
 
