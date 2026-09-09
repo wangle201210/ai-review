@@ -201,7 +201,7 @@ Codex CLI 完整输出的 `journalctl` 查看方式、SSH 隧道和安全说明�
 
 `serve-lark-codex` 使用 Lark 长连接接收群里的 `@机器人` 回复，把用户消息与被回复
 的告警原文发送到本机 Codex HTTP 服务。它用根消息 ID 保存 Codex `session_id`，
-因此同一线程中的后续要求会延续上下文。服务默认使用两个 worker：不同 Lark 线程
+因此同一线程中的后续要求会延续上下文。服务默认使用五个 worker：不同 Lark 线程
 可以同时运行，同一线程仍按消息顺序串行。
 
 ### Codex session 规则

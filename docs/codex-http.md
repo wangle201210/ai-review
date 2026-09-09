@@ -242,7 +242,7 @@ curl http://127.0.0.1:8787/v1/codex \
 | `HTTP__LISTEN_ADDR` | `127.0.0.1:8787` | HTTP 监听地址 |
 | `HTTP__AUTH_TOKEN` | 无 | 可选；非空时启用 Bearer 鉴权且至少 32 字节 |
 | `AI_REVIEW_HTTP_TOKEN` | 无 | `HTTP__AUTH_TOKEN` 的备用名称 |
-| `HTTP__MAX_CONCURRENT` | `2` | 全局同时运行的 Codex 请求数 |
+| `HTTP__MAX_CONCURRENT` | `5` | 全局同时运行的 Codex 请求数 |
 | `HTTP__MAX_REQUEST_BYTES` | `65536` | 最大 HTTP 请求体字节数 |
 | `CODEX__BINARY` | `codex` | Codex CLI 路径或命令名 |
 | `CODEX__WORK_DIR` | 无 | 必填，Codex 唯一工作目录 |
@@ -257,7 +257,7 @@ curl http://127.0.0.1:8787/v1/codex \
 http:
   listen_addr: 127.0.0.1:8787
   auth_token: ${AI_REVIEW_HTTP_TOKEN}
-  max_concurrent: 2
+  max_concurrent: 5
   max_request_bytes: 65536
 
 codex:

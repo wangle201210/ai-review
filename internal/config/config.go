@@ -130,14 +130,14 @@ func Load() (*Config, error) {
 		},
 		HTTP: HTTPConfig{
 			ListenAddr:      "127.0.0.1:8787",
-			MaxConcurrent:   2,
+			MaxConcurrent:   5,
 			MaxRequestBytes: 64 * 1024,
 		},
 		Lark: LarkConfig{
 			BaseURL:             "https://open.larksuite.com",
 			StatePath:           ".ai-review-lark-state.json",
 			QueueSize:           32,
-			WorkerCount:         2,
+			WorkerCount:         5,
 			RequireReply:        true,
 			CodexURL:            "http://127.0.0.1:8787/v1/codex",
 			CodexTimeoutSeconds: 3660,

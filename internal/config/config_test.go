@@ -24,9 +24,9 @@ func TestDefaultCodexRuntimeLimits(t *testing.T) {
 			cfg.Lark.CodexTimeoutSeconds,
 		)
 	}
-	if cfg.HTTP.MaxConcurrent != 2 || cfg.Lark.WorkerCount != 2 {
+	if cfg.HTTP.MaxConcurrent != 5 || cfg.Lark.WorkerCount != 5 {
 		t.Fatalf(
-			"concurrency = HTTP %d, Lark %d; want 2 and 2",
+			"concurrency = HTTP %d, Lark %d; want 5 and 5",
 			cfg.HTTP.MaxConcurrent,
 			cfg.Lark.WorkerCount,
 		)
