@@ -1,6 +1,6 @@
 ---
 name: nova-victorialogs-query
-description: Apply Nova game-platform defaults to the official VictoriaLogs query workflow. Use when Codex must search or analyze nova-game-play logs in the sg, us, or 2j environment by user ID, game, round or draw ID, trace ID, error text, container name, or time range; reconstruct an incident timeline; or correlate logs with source code only when explicitly requested. Default unspecified queries to the 2j environment.
+description: Apply Nova game-platform defaults to the official VictoriaLogs query workflow. Use when Codex must search or analyze nova-game-play logs in the trial (gray), sg, us, or 2j environment by user ID, game, round or draw ID, trace ID, error text, container name, or time range; reconstruct an incident timeline; or correlate logs with source code only when explicitly requested. Default unspecified queries to the 2j environment.
 ---
 
 # Nova VictoriaLogs Query
@@ -19,12 +19,15 @@ Use these base URLs. Kubernetes namespaces are routing-dependent and must not be
 
 | Environment | Query base URL |
 | --- | --- |
+| `trial` (gray / 灰度) | `https://v-log-trial.local-sg.net` |
 | `sg` | `https://v-log.local-sg.net` |
 | `us` | `https://v-log.local-us.net` |
 | `2j` | `https://v-log.local-2j.net` |
 
 - Use `2j` when the user does not specify an environment or cluster.
-- Honor an explicit `sg`, `us`, or `2j` environment or cluster.
+- Honor an explicit `trial`, `sg`, `us`, or `2j` environment or cluster.
+- Treat `灰度`, `灰度环境`, or `gray` as `trial`.
+- Infer `trial` from a supplied `v-log-trial.local-sg.net` VMUI URL.
 - Infer the cluster from a supplied `v-log.local-{cluster}.net` VMUI URL.
 - Set the resolved URL for the current query only. Do not edit shell startup files.
 - Do not probe an environment merely to validate the mapping unless the user requests validation.
