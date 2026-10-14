@@ -11,7 +11,7 @@ HTTP 层只处理 JSON、可选鉴权、请求大小、并发、超时、Codex �
 `session_id`。请求中的 `message` 会原样写入 Codex CLI 的标准输入；服务不会解析
 应用、时间、集群或日志，不会查询 VictoriaLogs，也不会调用 GitLab API。
 
-告警定位、修复和 MR 审查流程由 Codex skill 负责。本项目包含七个可部署 skills：
+告警定位、修复和 MR 审查流程由 Codex skill 负责。本项目包含八个可部署 skills：
 [`nova-incident-remediation`](../skills/nova-incident-remediation/SKILL.md) 负责编排，
 [`nova-victorialogs-query`](../skills/nova-victorialogs-query/SKILL.md) 负责 Nova
 环境解析和日志查询约定，
@@ -20,7 +20,9 @@ VictoriaLogs HTTP API 能力，
 [`nova-game-play-code-analysis`](../skills/nova-game-play-code-analysis/SKILL.md)
 负责准备项目并分析源码，
 [`nova-mr-impact-review`](../skills/nova-mr-impact-review/SKILL.md) 检查已合并 MR 的变更
-及受影响逻辑，[`nova-tag-fund-risk-review`](../skills/nova-tag-fund-risk-review/SKILL.md)
+及受影响逻辑，其中仅 `nova/game-play/gamev3` 使用
+[`code-audit`](../skills/code-audit/SKILL.md) 及完整知识库分析并输出详细报告；
+[`nova-tag-fund-risk-review`](../skills/nova-tag-fund-risk-review/SKILL.md)
 保留用于历史 Tag 线程续接，
 [`jenkins-trigger-build`](../skills/jenkins-trigger-build/SKILL.md) 负责预览并触发
 Nova Jenkins 构建。将它们安装到运行 HTTP 服务的同一用户下：
@@ -29,6 +31,7 @@ Nova Jenkins 构建。将它们安装到运行 HTTP 服务的同一用户下：
 install -d ~/.codex/skills
 rm -rf -- ~/.codex/skills/kibana-log-query
 cp -R \
+  skills/code-audit \
   skills/jenkins-trigger-build \
   skills/nova-game-play-code-analysis \
   skills/nova-incident-remediation \

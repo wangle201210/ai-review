@@ -1,0 +1,4 @@
+interface:
+  display_name: "gamev3 MR 审查"
+  short_description: "重点审核可能造成资金损失的玩法与调控策略漏洞，排除 tools 和 GM"
+  default_prompt: "使用 $code-audit 结合受影响游戏自身玩法、配置和业务链审核本次 MR 或代码变更，排除整个 tools/ 和 GM 专用逻辑，重点检查可能导致资金损失的玩法规则与调控策略设计及实现漏洞，在对话中以中文文字返回问题和待补证项，不生成报告文件。"

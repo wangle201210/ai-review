@@ -26,8 +26,9 @@
 
 GitLab MR 审查同样建立 Lark 线程和 session 映射。机器人把最终审查结果回复到
 “MR 合并审查已开始”消息下；用户回复线程内任意消息并 `@机器人` 时，会恢复
-原 MR 审查 session，并继续使用 `$nova-mr-impact-review`，不会进入事故修复
-流程。不同 MR 审查使用不同 session。
+原 MR 审查 session，并继续使用 `$nova-mr-impact-review`；其中只有
+`nova/game-play/gamev3` 使用 `$code-audit` 的专项规则及报告格式，不会进入事故修复
+流程。不同 MR 审查使用不同 session，gamev3 的技能选择随线程持久化。
 
 服务默认运行五个 Codex worker。不同群或不同根消息可以并行执行；同一根消息通过
 线程顺序锁保持串行，前一轮保存 `session_id` 后下一轮才开始。启用 GitLab MR

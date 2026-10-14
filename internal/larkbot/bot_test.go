@@ -904,6 +904,84 @@ func waitForReplies(t *testing.T, gateway *fakeGateway, count int) {
 	}
 }
 
+func TestMRReviewSkillRoutingSurvivesRestartAndFollowUp(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		projectPath string
+		wantAudit   bool
+		timeout     bool
+		incomplete  bool
+	}{
+		{name: "gamev3", projectPath: "nova/game-play/gamev3", wantAudit: true},
+		{name: "other game", projectPath: "nova/game-play/kraken"},
+		{name: "similar name", projectPath: "nova/game-play/gamev3-copy"},
+		{name: "nested project", projectPath: "nova/game-play/other/gamev3"},
+		{name: "different namespace", projectPath: "nova/other/gamev3"},
+		{name: "different case", projectPath: "nova/game-play/GameV3"},
+		{name: "gamev3 timeout", projectPath: "nova/game-play/gamev3", wantAudit: true, timeout: true},
+		{name: "gamev3 incomplete", projectPath: "nova/game-play/gamev3", wantAudit: true, incomplete: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gateway := &fakeGateway{}
+			turner := &fakeTurner{timeoutOnce: tc.timeout, incompleteOnce: tc.incomplete}
+			bot, store := newTestBot(t, gateway, turner, true)
+			review := mrreview.Review{
+				ProjectID: 42, ProjectName: "gamev3", ProjectPath: tc.projectPath,
+				MRIID: 17, SourceBranch: "fix/bet", TargetBranch: "main",
+				HeadSHA: "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7",
+			}
+			bot.processMRReview(t.Context(), review)
+			requests := turner.snapshot()
+			if len(requests) != 1 || strings.Contains(requests[0].Message, "$code-audit") != tc.wantAudit {
+				t.Fatalf("initial skill routing = %#v, want code-audit %t", requests, tc.wantAudit)
+			}
+			if !strings.Contains(requests[0].Message, tc.projectPath) || !strings.Contains(requests[0].Message, review.HeadSHA) {
+				t.Fatal("review lost its project or fixed revision")
+			}
+
+			reloaded, err := OpenStore(store.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantKind, wantSession := threadKindMRReview, "session-new"
+			if tc.wantAudit {
+				wantKind = threadKindGameV3MRReview
+			}
+			if tc.timeout {
+				wantSession = "session-timeout"
+			} else if tc.incomplete {
+				wantSession = "session-incomplete"
+			}
+			if session, kind := reloaded.Thread("chat-review:sent-1"); session != wantSession || kind != wantKind {
+				t.Fatalf("reloaded thread = %q, %q; want %q, %q", session, kind, wantSession, wantKind)
+			}
+			if !reloaded.Processed(review.DedupKey()) {
+				t.Fatal("review deduplication was lost")
+			}
+			restarted, err := NewBot(gateway, turner, reloaded, bot.config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Text mentioning gamev3 must not change another project's stored routing.
+			gateway.setParent("sent-1", "gamev3 对比说明")
+			restarted.process(t.Context(), IncomingMessage{
+				MessageID: "follow-up", ChatID: "chat-review", ChatType: "group",
+				ParentID: "sent-1", RootID: "sent-1", Text: "继续解释这个风险",
+			})
+			requests = turner.snapshot()
+			if len(requests) != 2 || requests[1].SessionID != wantSession ||
+				strings.Contains(requests[1].Message, "$code-audit") != tc.wantAudit ||
+				!strings.Contains(requests[1].Message, "$nova-mr-impact-review") ||
+				strings.Contains(requests[1].Message, "$nova-incident-remediation") {
+				t.Fatalf("follow-up skill routing = %#v", requests)
+			}
+			if _, kind := reloaded.Thread("chat-review:sent-1"); kind != wantKind {
+				t.Fatalf("follow-up changed thread kind to %q", kind)
+			}
+		})
+	}
+}
+
 func TestLegacyTagThreadStillResumesOriginalSkill(t *testing.T) {
 	gateway := &fakeGateway{parents: map[string]string{"old-tag": "旧 Tag 审查结果"}}
 	turner := &fakeTurner{}

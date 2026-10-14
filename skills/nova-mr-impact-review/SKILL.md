@@ -6,8 +6,25 @@ description: Review a merged Nova game-play MR by tracing its code changes and a
 # Review merged MR changes and their impact
 
 Review the exact merged MR supplied by the request. Start from its diff and
-expand only along a supported impact path. Preserve the six risk areas below;
-do not organize a repository-wide sweep of those areas.
+expand only along a supported impact path; do not organize a repository-wide sweep.
+
+## Select the repository's analysis workflow
+
+For the verified canonical project path `nova/game-play/gamev3` only, use the
+installed companion `$code-audit` (`../code-audit/SKILL.md` relative to this skill)
+and its complete knowledge base for analysis and reporting. Read its entrypoint
+and scope instructions before reading diff or source content. Keep the immutable
+version resolution below, then apply code-audit's file exclusions before fetching
+patches; an all-excluded diff is a valid result, not a missing diff. Its analysis,
+dependency, execution and report rules replace the corresponding default sections
+below for gamev3. Do not layer the old six-area restriction or report template on
+top of it. Follow the exact same routing for older MR sessions using their already
+verified project path and SHAs.
+
+For all other projects, use the default sections below without loading code-audit.
+Do not select it by display name, a substring, or a request to inspect a different
+repository within an existing review thread. If the gamev3 companion is missing,
+report that missing prerequisite rather than silently reverting to the old review.
 
 ## Resolve the exact review versions
 
