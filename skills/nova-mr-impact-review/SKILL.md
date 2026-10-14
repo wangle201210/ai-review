@@ -101,6 +101,23 @@ compare the old/new dependency behavior. Keep separate isolated absolute roots
 and read each dependency's applicable `AGENTS.md`. Do not recursively audit all
 modules. If a local replacement is unavailable, state that limitation.
 
+When an affected call path requires `game-common` or `slot-app` source that is
+not available locally, fetching it is allowed. Resolve the exact module/version
+and any `replace` from the reviewed base/head first. Verify that the source is
+`git.easycodesource.com/nova/game-play/game-common` or
+`git.easycodesource.com/nova/game-play/slot-app`, then clone/fetch the required
+tag or commit into an isolated detached worktree or temporary clone under
+`~/game-play`. A targeted `GOWORK=off go mod download -json <module>@<version>`
+for those two modules from a separate temporary directory outside the reviewed
+module is also allowed. Verify the resolved version/commit and
+read applicable dependency instructions before tracing only the affected code.
+Do not use latest/main, switch or reset shared checkouts, change go.mod/go.sum,
+or download all dependencies. Do not guess a revision for an unavailable local
+replacement or extend this fetch permission to a different replacement source.
+If access or version verification fails, report the gap and continue other
+checks. Fetching source does not authorize builds, game startup, generation, or
+downloading panel/result data; dependency source remains read-only.
+
 ## Keep execution proportional
 
 Bind every command to the correct absolute repository root (`git -C`, explicit
