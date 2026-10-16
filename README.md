@@ -156,7 +156,7 @@ AI-Review 采用双层审查架构：
 | `ai-review run-inline` | 仅深度逐行审查 |
 | `ai-review run-summary` | 仅摘要审查 |
 | `ai-review serve-codex` | 启动 Codex HTTP 服务 |
-| `ai-review serve-lark-codex` | 启动 Lark 群机器人及可选的 GitLab MR 合并审查 Webhook |
+| `ai-review serve-lark-codex` | 启动 Lark 群机器人及可选的 GitLab MR 审查 Webhook |
 
 ## Codex HTTP 服务
 
@@ -170,7 +170,7 @@ HTTP 服务适用于从另一台电脑发送单轮消息，并在需要上下文
 [`victorialogs-query`](skills/victorialogs-query/SKILL.md) 和
 [`nova-game-play-code-analysis`](skills/nova-game-play-code-analysis/SKILL.md)，安装方式见
 [`docs/codex-http.md`](docs/codex-http.md)。
-[`nova-mr-impact-review`](skills/nova-mr-impact-review/SKILL.md) 在 MR 合并后检查变更
+[`nova-mr-impact-review`](skills/nova-mr-impact-review/SKILL.md) 在 MR 创建、更新及合并时检查变更
 及受影响逻辑的资金风险和潜在空指针；仅 `nova/game-play/gamev3` 使用
 [`code-audit`](skills/code-audit/SKILL.md) 及完整知识库开展更详细的玩法、调控及资金
 审查，其他仓库沿用原流程。旧 Tag skill 保留用于历史线程追问。
@@ -235,12 +235,13 @@ Lark 会话映射键为 `<chat_id>:<thread_root>`。`thread_root` 优先使用 L
 Lark 开发者后台所需事件、权限、环境变量、systemd 配置和群内使用方式见
 [`docs/lark-codex-bot.md`](docs/lark-codex-bot.md)。
 
-## GitLab MR 合并后审查
+## GitLab MR 创建、更新及合并审查
 
-`serve-lark-codex` 接收 GitLab `Merge Request Hook`，仅 MR 被合并到 `main` 时触发。
+`serve-lark-codex` 接收 GitLab `Merge Request Hook`，目标分支为 `main` 的 MR 在创建、更新、重新打开及合并时触发。
 Webhook 立即返回 `202`，任务进入现有 worker 池。Codex 核验 MR 的固定差异版本和
-实际合并结果，检查变更逻辑及其影响到的调用路径、状态、配置和依赖，不全仓扫描。
-MR 创建、更新、审批、关闭和 Tag 事件不会触发审查；同一 MR 的重复事件去重。
+对应源码，检查变更逻辑及其影响到的调用路径、状态、配置和依赖，不全仓扫描。
+创建和更新按源提交 SHA 去重，新提交重新审查；合并结果独立审查。审批、关闭、其他
+目标分支和 Tag/Push Hook 不触发审查。
 
 保留下注与撤销、策略异常、重连结算、资金规则及空指针检查，重点报告本次变更
 新增、暴露或加剧的问题。必要时做定向验证，不默认运行全量测试。审查只读。
@@ -250,7 +251,7 @@ MR 创建、更新、审批、关闭和 Tag 事件不会触发审查；同一 MR
 
 将现有 GitLab Webhook 改为 **Merge request events**，取消 **Tag push events**，
 URL 改为 `/webhooks/gitlab/mr`。新配置使用 `GITLAB_MR_REVIEW__*`，旧变量及 URL
-仍作为兼容别名。完整部署和迁移说明见 [MR 合并审查](docs/gitlab-mr-review.md)。
+仍作为兼容别名。完整部署和迁移说明见 [MR 审查](docs/gitlab-mr-review.md)。
 
 ## 配置
 
@@ -329,7 +330,7 @@ ai-review/
 │   ├── codexhttp/                 # Codex HTTP API、鉴权和并发控制
 │   ├── config/                    # 配置加载（YAML + 环境变量）
 │   ├── larkbot/                   # Lark 长连接、队列、会话映射与 Codex HTTP 客户端
-│   ├── mrreview/                  # GitLab MR 合并 Webhook 校验与事件解析
+│   ├── mrreview/                  # GitLab MR Webhook 校验与事件解析
 │   ├── llm/                       # Anthropic Messages API 客户端
 │   ├── prompt/                    # Prompt 模板管理
 │   ├── review/                    # 审查流程编排
@@ -341,7 +342,7 @@ ai-review/
 │   ├── jenkins-trigger-build/     # Jenkins 构建预览与触发
 │   ├── nova-game-play-code-analysis/ # Nova 项目准备和源码分析
 │   ├── nova-incident-remediation/ # 告警定位、修复和 MR 编排
-│   ├── nova-mr-impact-review/    # MR 合并后变更与影响范围审查
+│   ├── nova-mr-impact-review/    # MR 变更与影响范围审查
 │   ├── nova-tag-fund-risk-review/ # 历史 Tag 审查续接
 │   ├── nova-victorialogs-query/   # Nova 环境和日志查询约定
 │   └── victorialogs-query/        # 通用 LogsQL 查询能力

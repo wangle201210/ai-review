@@ -71,13 +71,13 @@ func TestHandlerAcceptsMergedMRVariants(t *testing.T) {
 	}
 }
 
-func TestHandlerIgnoresEventsOtherThanMRMerge(t *testing.T) {
+func TestHandlerIgnoresUnsupportedActionsAndStates(t *testing.T) {
 	h := newTestHandler(t, func(context.Context, Review) (bool, error) { t.Fatal("ignored event enqueued"); return false, nil })
 	for _, action := range []string{"open", "reopen", "update", "close", "approval", "approved", "unapproved", ""} {
 		// Even an update to an already merged MR must not trigger a new review.
 		payload := strings.Replace(validPayload(), `"action":"merge"`, `"action":"`+action+`"`, 1)
 		w := performWebhook(h, payload, testSecret, "Merge Request Hook")
-		if w.Code != 200 || !strings.Contains(w.Body.String(), "mr_not_merged") {
+		if w.Code != 200 || !strings.Contains(w.Body.String(), "mr_event_not_reviewable") {
 			t.Fatalf("action=%s: %d %s", action, w.Code, w.Body.String())
 		}
 	}
@@ -93,32 +93,61 @@ func TestHandlerIgnoresEventsOtherThanMRMerge(t *testing.T) {
 	}
 }
 
-func TestHandlerOnlyQueuesMergesIntoMain(t *testing.T) {
-	for _, target := range []string{"main", "develop", "release/v1", "master", "Main", "main-feature", ""} {
-		t.Run("target="+target, func(t *testing.T) {
-			var queued []Review
-			h := newTestHandler(t, func(_ context.Context, review Review) (bool, error) {
-				queued = append(queued, review)
-				return false, nil
-			})
-			payload := strings.Replace(validPayload(), `"target_branch":"main"`, `"target_branch":"`+target+`"`, 1)
-			if target != "main" {
-				// A merge from main into another branch must not trigger a review.
-				payload = strings.Replace(payload, `"source_branch":"fix/bet"`, `"source_branch":"main"`, 1)
-			}
-			w := performWebhook(h, payload, testSecret, "Merge Request Hook")
-			var body response
-			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-				t.Fatal(err)
-			}
-			if target == "main" {
-				if w.Code != http.StatusAccepted || len(queued) != 1 || queued[0].TargetBranch != "main" {
-					t.Fatalf("main merge: status=%d queued=%#v", w.Code, queued)
+func TestHandlerOnlyQueuesReviewsTargetingMain(t *testing.T) {
+	for _, action := range []string{"open", "reopen", "update", "merge"} {
+		for _, target := range []string{"main", "develop", "release/v1", "master", "Main", "main-feature", ""} {
+			t.Run(action+"/target="+target, func(t *testing.T) {
+				var queued []Review
+				h := newTestHandler(t, func(_ context.Context, review Review) (bool, error) {
+					queued = append(queued, review)
+					return false, nil
+				})
+				state := "opened"
+				if action == "merge" {
+					state = "merged"
 				}
-			} else if w.Code != http.StatusOK || body.Status != "ignored" || body.Reason != "target_branch_not_main" || len(queued) != 0 {
-				t.Fatalf("other target: status=%d body=%#v queued=%#v", w.Code, body, queued)
+				payload := payloadForEvent(action, state)
+				payload = strings.Replace(payload, `"target_branch":"main"`, `"target_branch":"`+target+`"`, 1)
+				if target != "main" {
+					payload = strings.Replace(payload, `"source_branch":"fix/bet"`, `"source_branch":"main"`, 1)
+				}
+				w := performWebhook(h, payload, testSecret, "Merge Request Hook")
+				var body response
+				if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+					t.Fatal(err)
+				}
+				if target == "main" {
+					if w.Code != http.StatusAccepted || len(queued) != 1 || queued[0].TargetBranch != "main" || queued[0].Action != action || queued[0].HeadSHA != testHead {
+						t.Fatalf("main review: status=%d queued=%#v", w.Code, queued)
+					}
+				} else if w.Code != http.StatusOK || body.Status != "ignored" || body.Reason != "target_branch_not_main" || len(queued) != 0 {
+					t.Fatalf("other target: status=%d body=%#v queued=%#v", w.Code, body, queued)
+				}
+			})
+		}
+	}
+}
+
+func payloadForEvent(action, state string) string {
+	payload := strings.Replace(validPayload(), `"action":"merge"`, `"action":"`+action+`"`, 1)
+	return strings.Replace(payload, `"state":"merged"`, `"state":"`+state+`"`, 1)
+}
+
+func TestHandlerIgnoresClosedMRAndApprovalUpdates(t *testing.T) {
+	h := newTestHandler(t, func(context.Context, Review) (bool, error) {
+		t.Fatal("unsupported event enqueued")
+		return false, nil
+	})
+	for _, action := range []string{"open", "reopen", "update", "merge", "close", "approved", "approval", "unapproved", ""} {
+		for _, state := range []string{"opened", "closed", "merged", "locked", ""} {
+			if (action == "merge" && state == "merged") || ((action == "open" || action == "reopen" || action == "update") && state == "opened") {
+				continue
 			}
-		})
+			w := performWebhook(h, payloadForEvent(action, state), testSecret, "Merge Request Hook")
+			if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "mr_event_not_reviewable") {
+				t.Fatalf("%s/%s: %d %s", action, state, w.Code, w.Body.String())
+			}
+		}
 	}
 }
 
@@ -223,5 +252,38 @@ func TestReviewDedupKeyUsesProjectAndMR(t *testing.T) {
 	other.ProjectID++
 	if r.DedupKey() == other.DedupKey() {
 		t.Fatal("different projects collide")
+	}
+}
+
+func TestPreMergeDedupUsesRevisionAndKeepsMergeIndependent(t *testing.T) {
+	created := Review{Action: "open", ProjectID: 42, MRIID: 17, TargetBranch: "main", HeadSHA: testHead}
+	for _, action := range []string{"open", "reopen", "update"} {
+		repeat := created
+		repeat.Action = action
+		repeat.HeadSHA = strings.ToUpper(testHead)
+		repeat.MergeCommitSHA = testMerge
+		if repeat.DedupKey() != created.DedupKey() {
+			t.Fatal("same code triggers duplicate review")
+		}
+	}
+	for _, mutate := range []func(*Review){
+		func(r *Review) { r.HeadSHA = testMerge },
+		func(r *Review) { r.MRIID++ },
+		func(r *Review) { r.ProjectID++ },
+		func(r *Review) { r.TargetBranch = "other" },
+		func(r *Review) { r.Action = "merge" },
+	} {
+		other := created
+		mutate(&other)
+		if other.DedupKey() == created.DedupKey() {
+			t.Fatal("different reviews collide")
+		}
+	}
+	merged := created
+	merged.Action = "merge"
+	legacy := merged
+	legacy.Action = ""
+	if merged.DedupKey() != legacy.DedupKey() {
+		t.Fatal("legacy merge deduplication changed")
 	}
 }

@@ -1,11 +1,11 @@
 ---
 name: nova-mr-impact-review
-description: Review a merged Nova game-play MR by tracing its code changes and affected logic for financial risks and reachable nil-pointer failures. Use for automatic GitLab MR merge reviews and follow-up questions in those review threads. This is a read-only change-impact review, not a whole-repository audit or incident remediation.
+description: Review a Nova game-play MR when created, updated, reopened or merged by tracing its fixed code changes and affected logic for financial risks and reachable nil-pointer failures. Use for automatic GitLab MR reviews and follow-up questions in those review threads. This is a read-only change-impact review, not a whole-repository audit or incident remediation.
 ---
 
-# Review merged MR changes and their impact
+# Review MR changes and their impact
 
-Review the exact merged MR supplied by the request. Start from its diff and
+Review the exact MR event and source revision supplied by the request. Start from its diff and
 expand only along a supported impact path; do not organize a repository-wide sweep.
 
 ## Select the repository's analysis workflow
@@ -33,26 +33,40 @@ instructions. Accept target projects only under `nova/game-play` on
 `git.easycodesource.com` and verify the canonical Git origin.
 
 Use the bundled read-only metadata resolver with the supplied numeric IDs,
-project path, source head SHA, and any supplied merge/squash SHAs:
+project path, source head SHA, event action and branch names. For merge events,
+also pass any supplied merge/squash SHAs:
 
 ```text
-python3 <absolute-skill-root>/scripts/resolve_mr.py <project_id> <mr_iid> <project_path> <head_sha> [--merge-sha <sha>] [--squash-sha <sha>]
+python3 <absolute-skill-root>/scripts/resolve_mr.py <project_id> <mr_iid> <project_path> <head_sha> --event-action <open|reopen|update|merge> --target-branch main --source-branch <source_branch> [--merge-sha <sha>] [--squash-sha <sha>]
 ```
 
-It checks the GitLab project, merged state, immutable MR diff refs and event
-SHAs. Authentication uses `GITLAB_TOKEN` or a protected token file (default
+It checks the GitLab project, branch identity, immutable MR diff refs and event
+SHAs; only merge events require a currently merged MR. Authentication uses
+`GITLAB_TOKEN` or a protected token file (default
 `/etc/ai-review/gitlab-api-token`, overridden by `GITLAB_TOKEN_FILE`). Never print
-credentials. If API metadata is temporarily unavailable, retry a bounded number
-of times. If identities or revisions differ, stop and explain the missing or
-inconsistent evidence. Do not guess a baseline or fall back to a full audit.
+credentials. The resolver retries pending diff metadata up to three times with
+2/4-second delays because new MR refs populate asynchronously. If the event's
+head has since changed, pre-merge reviews use the matching historical diff
+version (at most ten pages of 100 versions). They never silently switch to the
+new head. If no matching version exists, branches no longer match, or identities
+cannot be verified, report the limitation. Do not guess a baseline or fall back
+to a full audit. `--event-action` defaults to `merge` only for legacy callers;
+new requests must pass the supplied action explicitly.
 
 Prepare an isolated worktree or clone under `~/game-play` at the resolved
 `result_sha`; preserve all existing checkouts and local changes. Fetch immutable
 commits or the MR head ref from the verified target repository, so deletion of
 the source branch does not change the review. Read applicable `AGENTS.md` files.
-Record the MR base/head/start SHAs and the actual merged result SHA.
+Record the event action, review phase, MR base/head/start SHAs and result SHA.
 
-Choose the diff according to the verified Git history:
+Choose the diff according to the event phase and verified Git history:
+
+- **Creation, reopening or update (`open`, `reopen`, `update`):** compare the
+  matching version's `diff_refs.base_sha` to the event's `head_sha`; `result_sha`
+  is that head. Inspect the full MR change, not just `oldrev..head` or its last
+  commit. Even if the MR later closes or merges while queued, keep this pre-merge
+  range and report the event revision. Ignore preview and later merge SHAs.
+  The merge-specific rules below apply only to `merge` events.
 
 - **A dedicated merge commit integrating this MR:** compare its first parent to
   the merge result. Verify its parents against the MR head (or squash commit).
@@ -139,7 +153,8 @@ Remove only temporary checkouts created for this review, after readers finish.
 ## Report
 
 Write in Chinese, beginning with the project, MR link, source/target branches,
-verified comparison range and merge result. State the conclusion and summarize
+event action, verified comparison range and result SHA (source head for pre-merge,
+actual merge result for merge events). State the conclusion and summarize
 the changes and impact paths actually inspected.
 
 For each finding include severity, the originating change, affected logic,
@@ -148,6 +163,7 @@ and a concrete local regression-verification scenario. Distinguish verified
 behavior from assumptions. Cite the owning module and version for dependency
 findings. If no scoped problem is found, say so; disclose unverified paths.
 
-For follow-ups, reuse the session's MR and fixed revisions. Recreate a cleaned
+For follow-ups, reuse the session's MR, review phase and fixed revisions. Recreate a cleaned
 checkout at those SHAs if needed; do not switch to the latest branch or restart
-a whole-project audit.
+a whole-project audit. Different source revisions use separate sessions and
+reports. Do not turn an older pre-merge thread into a newer or merged review.

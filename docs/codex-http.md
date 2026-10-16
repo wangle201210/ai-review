@@ -19,7 +19,7 @@ HTTP 层只处理 JSON、可选鉴权、请求大小、并发、超时、Codex �
 VictoriaLogs HTTP API 能力，
 [`nova-game-play-code-analysis`](../skills/nova-game-play-code-analysis/SKILL.md)
 负责准备项目并分析源码，
-[`nova-mr-impact-review`](../skills/nova-mr-impact-review/SKILL.md) 检查已合并 MR 的变更
+[`nova-mr-impact-review`](../skills/nova-mr-impact-review/SKILL.md) 检查创建、更新及合并 MR 的变更
 及受影响逻辑，其中仅 `nova/game-play/gamev3` 使用
 [`code-audit`](../skills/code-audit/SKILL.md) 及完整知识库分析并输出详细报告；
 [`nova-tag-fund-risk-review`](../skills/nova-tag-fund-risk-review/SKILL.md)
@@ -66,7 +66,7 @@ Jenkins skill 是独立的外部操作能力。事故修复、推送分支或创
 Jenkins；只有用户明确要求 build、deploy、rebuild 或 release 时，Codex 才能在
 无网络预览后提交构建请求。未指定构建分支时使用 `main`。
 
-MR 元数据的只读 API 凭据配置见 [MR 合并审查](gitlab-mr-review.md)。
+MR 元数据的只读 API 凭据配置见 [MR 审查](gitlab-mr-review.md)。
 
 ### Jenkins 凭据
 

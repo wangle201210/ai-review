@@ -908,6 +908,7 @@ func TestMRReviewSkillRoutingSurvivesRestartAndFollowUp(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		projectPath string
+		action      string
 		wantAudit   bool
 		timeout     bool
 		incomplete  bool
@@ -920,12 +921,17 @@ func TestMRReviewSkillRoutingSurvivesRestartAndFollowUp(t *testing.T) {
 		{name: "different case", projectPath: "nova/game-play/GameV3"},
 		{name: "gamev3 timeout", projectPath: "nova/game-play/gamev3", wantAudit: true, timeout: true},
 		{name: "gamev3 incomplete", projectPath: "nova/game-play/gamev3", wantAudit: true, incomplete: true},
+		{name: "gamev3 created", projectPath: "nova/game-play/gamev3", action: "open", wantAudit: true},
+		{name: "gamev3 updated", projectPath: "nova/game-play/gamev3", action: "update", wantAudit: true},
+		{name: "other game updated", projectPath: "nova/game-play/kraken", action: "update"},
+		{name: "gamev3 created timeout", projectPath: "nova/game-play/gamev3", action: "open", wantAudit: true, timeout: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			gateway := &fakeGateway{}
 			turner := &fakeTurner{timeoutOnce: tc.timeout, incompleteOnce: tc.incomplete}
 			bot, store := newTestBot(t, gateway, turner, true)
 			review := mrreview.Review{
+				Action:    tc.action,
 				ProjectID: 42, ProjectName: "gamev3", ProjectPath: tc.projectPath,
 				MRIID: 17, SourceBranch: "fix/bet", TargetBranch: "main",
 				HeadSHA: "82b3d5ae55f7080f1e6022629cdb57bfae7cccc7",
@@ -979,6 +985,77 @@ func TestMRReviewSkillRoutingSurvivesRestartAndFollowUp(t *testing.T) {
 				t.Fatalf("follow-up changed thread kind to %q", kind)
 			}
 		})
+	}
+}
+
+func TestMRCreateUpdateAndMergeReviewLifecycle(t *testing.T) {
+	gateway := &fakeGateway{}
+	turner := &fakeTurner{}
+	bot, store := newTestBot(t, gateway, turner, true)
+	review := mrreview.Review{
+		Action: "open", ProjectID: 42, ProjectPath: "nova/game-play/gamev3",
+		MRIID: 17, SourceBranch: "feature", TargetBranch: "main", HeadSHA: strings.Repeat("a", 40),
+	}
+	run := func(wantDuplicate bool) {
+		t.Helper()
+		duplicate, err := bot.EnqueueMRReview(t.Context(), review)
+		if err != nil || duplicate != wantDuplicate {
+			t.Fatalf("enqueue action=%s head=%s: duplicate=%t error=%v", review.Action, review.HeadSHA, duplicate, err)
+		}
+		if !wantDuplicate {
+			task := <-bot.queue
+			<-bot.queued
+			bot.processMRReview(t.Context(), *task.mrReview)
+		}
+	}
+	// A second delivery during queueing must not start a second task.
+	if duplicate, err := bot.EnqueueMRReview(t.Context(), review); err != nil || duplicate {
+		t.Fatalf("enqueue created MR: %t %v", duplicate, err)
+	}
+	review.Action = "update"
+	run(true)
+	task := <-bot.queue
+	<-bot.queued
+	bot.processMRReview(t.Context(), *task.mrReview)
+
+	reloaded, err := OpenStore(store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot, err = NewBot(gateway, turner, reloaded, bot.config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run(true) // Completed code is still deduplicated after restart.
+	review.HeadSHA = strings.Repeat("b", 40)
+	run(false)
+	review.Action = "reopen"
+	run(true)
+	review.Action = "merge"
+	run(false) // The same head still receives an independent merged-result review.
+	run(true)
+
+	requests := turner.snapshot()
+	sends := gateway.sendSnapshot()
+	if len(requests) != 3 || len(sends) != 3 {
+		t.Fatalf("requests=%d notifications=%d", len(requests), len(sends))
+	}
+	for i, action := range []string{"open", "update", "merge"} {
+		if requests[i].SessionID != "" || !strings.Contains(requests[i].Message, `"event_action": "`+action+`"`) {
+			t.Fatalf("request %d reused a session or lost event action: %#v", i, requests[i])
+		}
+		wantPhase := "本次为合并前审查"
+		if action == "merge" {
+			wantPhase = "本次为合并后审查"
+		}
+		if !strings.Contains(requests[i].Message, wantPhase) {
+			t.Fatalf("request %d lost review phase", i)
+		}
+	}
+	for i, title := range []string{"MR 创建审查已开始", "MR 更新审查已开始", "MR 合并审查已开始"} {
+		if sends[i].title != title {
+			t.Fatalf("title[%d]=%q", i, sends[i].title)
+		}
 	}
 }
 

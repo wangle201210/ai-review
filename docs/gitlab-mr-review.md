@@ -1,9 +1,11 @@
-# GitLab MR 合并后增量审查
+# GitLab MR 创建、更新及合并审查
 
-`ai-review serve-lark-codex` 接收 `Merge Request Hook`，只在
-`object_attributes.action=merge`、`state=merged` 且 `target_branch=main` 时触发审查。
-合并到其他分支（包括从 `main` 合并到其他分支）、MR 创建、更新、审批、关闭以及
-Tag Push 事件均返回 `200 ignored`，不会入队或调用 Codex。目标分支按 `main` 精确匹配。
+`ai-review serve-lark-codex` 接收 `Merge Request Hook`，目标分支按 `main` 精确匹配：
+
+- 创建、重新打开和更新：`action=open/reopen/update` 且 `state=opened` 时审查该源提交。
+  更新包括向 MR 源分支推送代码；同一提交的重复通知或标题、描述等编辑按版本去重。
+- 合并：`action=merge` 且 `state=merged` 时独立审查实际合并结果，包含冲突解决。
+- 其他目标分支、关闭、审批、已合并后的普通更新和 Tag/Push Hook 返回 `200 ignored`。
 
 Webhook 只校验事件、排队和通知；源码准备、差异核验和分析由
 [`nova-mr-impact-review`](../skills/nova-mr-impact-review/SKILL.md) 完成。
@@ -17,9 +19,13 @@ Webhook 只校验事件、排队和通知；源码准备、差异核验和分析
 - 保留下注/撤销、余额一致性、策略异常、重连结算、规则/玩法资金风险和空指针检查。
 - 以本次变更为入口；报告新增、暴露或加剧的问题，指出变更到影响的因果路径。
   可以读取和报告未修改但受影响的代码，不进行全仓扫描。
-- 核验 GitLab 项目、MR 合并状态和固定 diff refs。普通合并检查第一父提交到合并
+- 核验 GitLab 项目、事件阶段、分支和固定 diff refs。合并前检查事件对应版本的完整
+  MR base/head 差异，不能只检查本次推送的最后一个提交；普通合并检查第一父提交到合并
   结果的差异，包含冲突解决；压缩合并核验 squash 结果；多提交快进合并使用完整
   MR base/head 差异，不能只看最后一个提交。不会使用目标分支的最新 HEAD。
+- 新建 MR 的 diff refs 异步生成，解析脚本最多尝试三次；排队期间源分支已更新时，
+  按事件 head SHA 查找历史 diff 版本，最多十页、每页 100 个。合并前事件即使之后
+  已合并或关闭，也只审事件对应源版本。无法核验分支或找到版本时报告限制。
 - 内部依赖按精确版本和 `replace` 读取；模块变更只比较相关依赖的影响。
   必要时可将 `game-common`、`slot-app` 对应版本的源码拉取到本地隔离目录，
   核验模块及提交后仅追踪相关调用链，不切换共享工作区或使用最新分支替代。
@@ -45,12 +51,14 @@ gamev3 以 `code-audit` 的规则替代上述默认分析、依赖、验证和�
 
 ## Lark 和并发
 
-MR 审查与人工任务共享 worker 池，默认五个任务并行。相同项目和 MR 的重复合并
-事件在七天内去重；排队中和运行中的任务也去重。排队成功立即返回 `202`，无需
+MR 审查与人工任务共享 worker 池，默认五个任务并行。创建/更新/重新打开事件按
+项目、MR、目标分支和源提交 SHA 在七天内去重；源提交变化后重新审查。同一项目/MR
+的合并事件独立去重并兼容旧状态。排队中和运行中的任务也去重。排队成功立即返回 `202`，无需
 等待分析结束。队列满返回 `429` 和 `Retry-After: 30`。
 
-“MR 合并审查已开始”作为 Lark 线程根消息，结果或失败提示回复到该线程，并保存
+“MR 创建审查已开始”“MR 更新审查已开始”等作为 Lark 线程根消息，结果或失败提示回复到该线程，并保存
 session。用户回复线程内消息并真正 `@机器人` 即可追问。同线程串行并复用上下文。
+不同源版本及合并阶段使用独立的线程和 session；旧线程追问保持原版本和阶段。
 gamev3 线程持久化专项审查类型，成功、超时或未完成后续问及服务重启后继续使用
 `code-audit`。升级前的 MR session 由技能依据已核验的项目路径选择专项流程。
 旧 Tag 审查线程仍按原 Tag skill 续接，不会误进入 MR 或事故修复流程。
@@ -82,8 +90,9 @@ GITLAB_MR_REVIEW__MAX_REQUEST_BYTES=65536
 - Secret token 和 SSL verification 与部署的鉴权及 HTTP/HTTPS 方式保持一致。
   GitLab 更改 Webhook URL 时会重置 Secret；如果服务配置了非空 Secret，需同时重新填写。
 
-GitLab 会发送多种 MR 事件，服务只接受其中的合并动作。GitLab 的“测试”按钮若发送
-的是未合并 MR，返回 `ignored` 是预期行为。不要为了验证接收端而合并无关 MR。
+已有 **Merge request events** 订阅会包含创建、更新和合并，无需额外启用 Push events。
+GitLab 的“测试”按钮如果发送目标为 main 的有效 open/update 事件，也会触发真实审查。
+验证接收端可使用缺少 IID 的负向请求，避免为了测试发送真实审查或通知。
 
 将 `nova-mr-impact-review`（包括 scripts）和 `code-audit`（包括整个 `知识库/`
 及 `agents/`）一起安装到运行 Codex 的用户的 `~/.codex/skills/`。

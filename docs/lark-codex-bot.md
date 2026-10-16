@@ -25,10 +25,10 @@
 在原线程发送“继续”。
 
 GitLab MR 审查同样建立 Lark 线程和 session 映射。机器人把最终审查结果回复到
-“MR 合并审查已开始”消息下；用户回复线程内任意消息并 `@机器人` 时，会恢复
+对应的“MR 创建/更新/合并审查已开始”消息下；用户回复线程内任意消息并 `@机器人` 时，会恢复
 原 MR 审查 session，并继续使用 `$nova-mr-impact-review`；其中只有
 `nova/game-play/gamev3` 使用 `$code-audit` 的专项规则及报告格式，不会进入事故修复
-流程。不同 MR 审查使用不同 session，gamev3 的技能选择随线程持久化。
+流程。不同 MR、源提交版本及合并阶段使用不同 session，gamev3 的技能选择随线程持久化。
 
 服务默认运行五个 Codex worker。不同群或不同根消息可以并行执行；同一根消息通过
 线程顺序锁保持串行，前一轮保存 `session_id` 后下一轮才开始。启用 GitLab MR
@@ -150,11 +150,11 @@ systemctl enable --now ai-review-lark-codex.service
 | `LARK__BUSY_RETRY_SECONDS` | `5` | Codex 返回 `409/429` 后的重试间隔 |
 | `LARK__MAX_PROMPT_BYTES` | `49152` | 合成提示词的最大字节数 |
 
-GitLab MR 审查配置见 [`gitlab-tag-review.md`](gitlab-tag-review.md)。目标群由
+GitLab MR 审查配置见 [`gitlab-mr-review.md`](gitlab-mr-review.md)。目标群由
 `GITLAB_MR_REVIEW__LARK_CHAT_ID` 独立配置，因此后续可以在不改变日常 Bug 修复群
 的情况下切换到专用审查群。
 
-状态文件以 `0600` 原子写入。已处理的消息 ID 和 Tag 事件保留 7 天用于去重；线程
+状态文件以 `0600` 原子写入。已处理的消息 ID 和 MR 审查版本保留 7 天用于去重；线程
 到 Codex session 的映射及线程类型会跨服务重启保留。
 
 ## 日志

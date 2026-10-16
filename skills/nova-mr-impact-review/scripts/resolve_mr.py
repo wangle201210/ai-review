@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -14,6 +15,10 @@ SHA = re.compile(r"[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?\Z")
 
 
 class ReviewError(Exception):
+    pass
+
+
+class DiffNotReady(ReviewError):
     pass
 
 
@@ -30,7 +35,30 @@ def checked_sha(value, name, optional=False):
     return value.lower()
 
 
-def resolve(get, project_id, mr_iid, project_path, head_sha, merge_sha="", squash_sha=""):
+def matching_diff_refs(get, mr_path, head):
+    # Bounded pagination also handles older events queued behind later pushes.
+    for page in range(1, 11):
+        path = mr_path + "/versions?per_page=100"
+        if page > 1:
+            path += f"&page={page}"
+        versions = get(path)
+        if not isinstance(versions, list):
+            raise ReviewError("Invalid MR diff versions response")
+        matches = [v for v in versions if (v.get("head_commit_sha") or "").lower() == head]
+        if matches:
+            latest = max(matches, key=lambda v: v["id"])
+            return {"base_sha": latest.get("base_commit_sha"), "head_sha": latest.get("head_commit_sha"), "start_sha": latest.get("start_commit_sha")}
+        if len(versions) < 100:
+            break
+    raise DiffNotReady("No matching MR diff version within 1000 versions; retry later, never use branch HEAD")
+
+
+def resolve(get, project_id, mr_iid, project_path, head_sha, merge_sha="", squash_sha="",
+            event_action="merge", target_branch="main", source_branch=""):
+    if event_action not in ("open", "reopen", "update", "merge"):
+        raise ReviewError("Unsupported MR event action")
+    if target_branch != "main":
+        raise ReviewError("Only MRs targeting main are supported")
     if project_id < 1 or mr_iid < 1:
         raise ReviewError("Project ID and MR IID must be positive")
     if not project_path.startswith("nova/game-play/") or any(
@@ -44,36 +72,56 @@ def resolve(get, project_id, mr_iid, project_path, head_sha, merge_sha="", squas
         raise ReviewError("Project identity does not match webhook")
     mr_path = f"/projects/{project_id}/merge_requests/{mr_iid}"
     mr = get(mr_path)
-    if mr.get("iid") != mr_iid or mr.get("target_project_id") != project_id or mr.get("state") != "merged":
-        raise ReviewError("MR identity or merged state does not match webhook")
+    if mr.get("iid") != mr_iid or mr.get("target_project_id") != project_id:
+        raise ReviewError("MR identity does not match webhook")
+    if mr.get("target_branch") != target_branch or source_branch and mr.get("source_branch") != source_branch:
+        raise ReviewError("MR branches differ from webhook; cannot verify this event's comparison")
+    merged_review = event_action == "merge"
+    if merged_review and mr.get("state") != "merged":
+        raise ReviewError("MR merged state does not match webhook")
+    if not merged_review and mr.get("state") not in ("opened", "closed", "merged"):
+        raise ReviewError("Unexpected current MR state")
     head = checked_sha(head_sha, "webhook head SHA")
-    if checked_sha(mr.get("sha"), "MR head SHA") != head:
+    if not mr.get("sha"):
+        raise DiffNotReady("MR head is not available yet; retry later")
+    current_head = checked_sha(mr.get("sha"), "MR head SHA")
+    if merged_review and current_head != head:
         raise ReviewError("MR head differs from webhook; do not review a newer revision")
-    merge = checked_sha(mr.get("merge_commit_sha"), "merge commit SHA", optional=True)
-    squash = checked_sha(mr.get("squash_commit_sha"), "squash commit SHA", optional=True)
+    # A queued pre-merge event never adopts a later merge result or preview SHA.
+    merge = checked_sha(mr.get("merge_commit_sha"), "merge commit SHA", optional=True) if merged_review else ""
+    squash = checked_sha(mr.get("squash_commit_sha"), "squash commit SHA", optional=True) if merged_review else ""
     for provided, actual, name in ((merge_sha, merge, "merge"), (squash_sha, squash, "squash")):
-        if provided and checked_sha(provided, name + " SHA") != actual:
+        if merged_review and provided and checked_sha(provided, name + " SHA") != actual:
             raise ReviewError(f"MR {name} SHA differs from webhook")
     refs = mr.get("diff_refs") or {}
-    if (refs.get("head_sha") or "").lower() != head or not refs.get("base_sha"):
+    if current_head != head or (refs.get("head_sha") or "").lower() != head or not all(refs.get(k) for k in ("base_sha", "start_sha")):
         # Diff refs can be temporarily unavailable; resolve the matching immutable version.
-        versions = get(mr_path + "/versions?per_page=100")
-        matches = [v for v in versions if (v.get("head_commit_sha") or "").lower() == head]
-        if not matches:
-            raise ReviewError("No matching MR diff version; retry later, never use branch HEAD")
-        latest = max(matches, key=lambda v: v["id"])
-        refs = {"base_sha": latest.get("base_commit_sha"), "head_sha": latest.get("head_commit_sha"), "start_sha": latest.get("start_commit_sha")}
+        refs = matching_diff_refs(get, mr_path, head)
+    if not all(refs.get(k) for k in ("base_sha", "head_sha", "start_sha")):
+        raise DiffNotReady("Matching MR diff version is still being prepared; retry later")
     refs = {k: checked_sha(refs.get(k), "diff " + k) for k in ("base_sha", "head_sha", "start_sha")}
     if refs["head_sha"] != head:
         raise ReviewError("Diff head does not match webhook")
     return {
         "project_id": project_id, "project_path": project_path,
+        "event_action": event_action, "current_mr_state": mr["state"],
+        "review_phase": "merged" if merged_review else "pre_merge",
         "mr_iid": mr_iid, "mr_url": f"{project_url}/-/merge_requests/{mr_iid}",
         "source_branch": mr["source_branch"], "target_branch": mr["target_branch"],
         "head_sha": head, "merge_commit_sha": merge, "squash_commit_sha": squash,
         "diff_refs": refs,
         "result_sha": merge or squash or head,
     }
+
+
+def resolve_with_retry(get, *args, sleep=time.sleep, **kwargs):
+    for attempt in range(3):
+        try:
+            return resolve(get, *args, **kwargs)
+        except DiffNotReady:
+            if attempt == 2:
+                raise
+            sleep(2 * (attempt + 1))
 
 
 def main():
@@ -84,6 +132,9 @@ def main():
     parser.add_argument("head_sha")
     parser.add_argument("--merge-sha", default="")
     parser.add_argument("--squash-sha", default="")
+    parser.add_argument("--event-action", choices=("open", "reopen", "update", "merge"), default="merge")
+    parser.add_argument("--target-branch", default="main")
+    parser.add_argument("--source-branch", default="")
     args = parser.parse_args()
     token = os.environ.get("GITLAB_TOKEN", "")
     if not token:
@@ -106,7 +157,11 @@ def main():
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
             raise ReviewError("Unable to read GitLab API response") from None
 
-    print(json.dumps(resolve(get, args.project_id, args.mr_iid, args.project_path, args.head_sha, args.merge_sha, args.squash_sha), ensure_ascii=False, indent=2))
+    print(json.dumps(resolve_with_retry(
+        get, args.project_id, args.mr_iid, args.project_path, args.head_sha,
+        args.merge_sha, args.squash_sha, event_action=args.event_action,
+        target_branch=args.target_branch, source_branch=args.source_branch,
+    ), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

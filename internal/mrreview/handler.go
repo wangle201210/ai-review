@@ -1,6 +1,7 @@
 package mrreview
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -30,6 +31,7 @@ var (
 )
 
 type Review struct {
+	Action          string
 	ProjectID       int
 	ProjectName     string
 	ProjectPath     string
@@ -43,10 +45,22 @@ type Review struct {
 	SquashCommitSHA string
 }
 
+func (r Review) EventAction() string {
+	// Older callers and saved sessions represent merge reviews.
+	return cmp.Or(r.Action, "merge")
+}
+
 func (r Review) DedupKey() string {
-	// An MR can be merged only once; optional SHA fields vary across deliveries.
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%d", r.ProjectID, r.MRIID)))
-	return "gitlab-mr:" + hex.EncodeToString(sum[:])
+	identity := fmt.Sprintf("%d\x00%d", r.ProjectID, r.MRIID)
+	prefix := "gitlab-mr:"
+	if r.EventAction() != "merge" {
+		// Open/reopen/update deliveries for the same code share one review.
+		// Keep merge reviews separate and preserve their existing persisted keys.
+		identity += "\x00" + r.TargetBranch + "\x00" + strings.ToLower(r.HeadSHA)
+		prefix = "gitlab-mr-head:"
+	}
+	sum := sha256.Sum256([]byte(identity))
+	return prefix + hex.EncodeToString(sum[:])
 }
 
 type EnqueueFunc func(context.Context, Review) (duplicate bool, err error)
@@ -159,8 +173,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, response{Status: "rejected", Reason: err.Error()})
 		return
 	}
-	if payload.Attributes.Action != "merge" || payload.Attributes.State != "merged" {
-		writeJSON(w, http.StatusOK, response{Status: "ignored", Reason: "mr_not_merged"})
+	if !reviewableEvent(payload.Attributes.Action, payload.Attributes.State) {
+		writeJSON(w, http.StatusOK, response{Status: "ignored", Reason: "mr_event_not_reviewable"})
 		return
 	}
 	if payload.Attributes.TargetBranch != "main" {
@@ -189,12 +203,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if duplicate {
 		status = "duplicate"
 	}
-	h.logger.Printf("[gitlab-mr-review] webhook %s project=%q mr=%d", status, review.ProjectPath, review.MRIID)
+	h.logger.Printf("[gitlab-mr-review] webhook %s project=%q mr=%d action=%s head=%s", status, review.ProjectPath, review.MRIID, review.EventAction(), review.HeadSHA)
 	writeJSON(w, http.StatusAccepted, response{
 		Status:  status,
 		Project: review.ProjectPath,
 		MRIID:   review.MRIID,
 	})
+}
+
+func reviewableEvent(action, state string) bool {
+	switch action {
+	case "open", "reopen", "update":
+		return state == "opened"
+	case "merge":
+		return state == "merged"
+	default:
+		return false
+	}
 }
 
 func (h *Handler) decode(w http.ResponseWriter, r *http.Request) (mergeRequestPayload, error) {
@@ -255,6 +280,7 @@ func (h *Handler) reviewFromPayload(payload mergeRequestPayload) (Review, error)
 		return Review{}, errors.New("invalid_project_name")
 	}
 	return Review{
+		Action:          a.Action,
 		ProjectID:       payload.Project.ID,
 		ProjectName:     projectName,
 		ProjectPath:     projectPath,
