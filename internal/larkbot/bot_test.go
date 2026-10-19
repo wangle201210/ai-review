@@ -24,6 +24,7 @@ type sentMessage struct {
 type fakeGateway struct {
 	mu           sync.Mutex
 	parents      map[string]string
+	fetched      []string
 	replies      []string
 	replyTargets []string
 	sends        []sentMessage
@@ -45,6 +46,7 @@ func (g *fakeGateway) Send(_ context.Context, chatID, title, markdown string) (s
 func (g *fakeGateway) FetchMessage(_ context.Context, messageID string) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.fetched = append(g.fetched, messageID)
 	return g.parents[messageID], nil
 }
 
@@ -247,6 +249,45 @@ func TestBotProcessesMessageAndResumesThreadSession(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if got := len(turner.snapshot()); got != 2 {
 		t.Fatalf("duplicate triggered Codex; request count = %d", got)
+	}
+}
+
+func TestBotAcceptsDirectMentionAndResumesReplies(t *testing.T) {
+	gateway := &fakeGateway{}
+	turner := &fakeTurner{}
+	bot, store := newTestBot(t, gateway, turner, false)
+	direct := IncomingMessage{
+		MessageID: "direct-1", ChatID: "chat-1", ChatType: "group",
+		Text: "查询灰度环境最近15分钟的报错",
+	}
+	bot.process(t.Context(), direct)
+	requests := turner.snapshot()
+	if len(requests) != 1 || requests[0].SessionID != "" || !strings.Contains(requests[0].Message, direct.Text) {
+		t.Fatalf("direct request = %#v", requests)
+	}
+	if len(gateway.fetched) != 0 {
+		t.Fatal("direct mention tried to fetch a parent message")
+	}
+	if session := store.Session("chat-1:direct-1"); session != "session-new" {
+		t.Fatalf("direct message session = %q", session)
+	}
+	gateway.setParent("direct-1", direct.Text)
+	bot.process(t.Context(), IncomingMessage{
+		MessageID: "follow-1", ChatID: "chat-1", ChatType: "group",
+		ParentID: "direct-1", RootID: "direct-1", Text: "继续定位原因",
+	})
+	requests = turner.snapshot()
+	if len(requests) != 2 || requests[1].SessionID != "session-new" || !strings.Contains(requests[1].Message, direct.Text) {
+		t.Fatalf("follow-up request = %#v", requests)
+	}
+	if len(gateway.fetched) != 1 || gateway.fetched[0] != "direct-1" {
+		t.Fatalf("fetched messages = %#v", gateway.fetched)
+	}
+	direct.MessageID = "direct-2"
+	bot.process(t.Context(), direct)
+	requests = turner.snapshot()
+	if len(requests) != 3 || requests[2].SessionID != "" || len(gateway.fetched) != 1 {
+		t.Fatalf("independent direct message reused context: %#v", requests)
 	}
 }
 

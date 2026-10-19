@@ -104,6 +104,37 @@ func TestLoadLarkEnvironment(t *testing.T) {
 	}
 }
 
+func TestLarkReplyRequirementDefaultsAndOverrides(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		env  string
+		want bool
+	}{
+		{name: "direct mentions by default"},
+		{name: "explicit reply requirement", env: "true", want: true},
+		{name: "YAML reply requirement", yaml: "lark:\n  require_reply: true\n", want: true},
+		{name: "environment allows direct mentions", yaml: "lark:\n  require_reply: true\n", env: "false"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			t.Setenv("LARK__REQUIRE_REPLY", tc.env)
+			if tc.yaml != "" {
+				if err := os.WriteFile(".ai-review.yaml", []byte(tc.yaml), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Lark.RequireReply != tc.want {
+				t.Fatalf("RequireReply = %t, want %t", cfg.Lark.RequireReply, tc.want)
+			}
+		})
+	}
+}
+
 func TestLoadGitLabMRReviewEnvironment(t *testing.T) {
 	t.Setenv("GITLAB_MR_REVIEW__ENABLED", "true")
 	t.Setenv("GITLAB_MR_REVIEW__LISTEN_ADDR", "0.0.0.0:8788")

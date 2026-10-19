@@ -201,17 +201,19 @@ Codex CLI 完整输出的 `journalctl` 查看方式、SSH 隧道和安全说明�
 
 ## Lark Codex 机器人
 
-`serve-lark-codex` 使用 Lark 长连接接收群里的 `@机器人` 回复，把用户消息与被回复
-的告警原文发送到本机 Codex HTTP 服务。它用根消息 ID 保存 Codex `session_id`，
+`serve-lark-codex` 使用 Lark 长连接接收群里的 `@机器人` 消息，可直接发送
+`@机器人 查询灰度环境最近15分钟的报错`，也可回复已有告警并 `@机器人`。
+用户消息和可选的被回复原文会发送到本机 Codex HTTP 服务。它用根消息 ID 保存 Codex `session_id`，
 因此同一线程中的后续要求会延续上下文。服务默认使用五个 worker：不同 Lark 线程
 可以同时运行，同一线程仍按消息顺序串行。
 
 ### Codex session 规则
 
 Lark 会话映射键为 `<chat_id>:<thread_root>`。`thread_root` 优先使用 Lark 的
-`root_id`，没有时依次回退到 `parent_id` 和当前消息 ID。当
-`LARK__REQUIRE_REPLY=true`（当前服务器配置）时，顶层 `@机器人` 不会调用 Codex，
-必须先回复一条告警或日志消息。
+`root_id`，没有时依次回退到 `parent_id` 和当前消息 ID。
+`LARK__REQUIRE_REPLY=false` 为默认及当前服务器配置，允许直接 `@机器人` 发起任务。
+直接发送的新消息建立独立会话；回复该消息或线程内结果并 `@机器人` 可继续上下文。
+如需限制为必须回复消息，可显式设置 `LARK__REQUIRE_REPLY=true`。
 
 - 同一群、同一根消息下第一次调用时，机器人向 Codex HTTP 发送空
   `session_id`。Codex CLI 在 `thread.started` 事件中生成新 ID。该 turn 成功时，

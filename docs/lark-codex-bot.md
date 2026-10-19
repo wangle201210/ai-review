@@ -9,11 +9,15 @@
 
 ## 消息流程
 
-1. 用户在群里回复一条告警或日志消息。
-2. 用户在回复中 `@机器人`，并写本次要求，例如“查明原因，修复并提交 MR”。
-3. 机器人立即回复“已收到”，然后把两条消息合成一个 Codex turn。
+1. 用户直接在群里发送 `@机器人` 加任务内容，例如“查询灰度环境最近15分钟的报错”。
+2. 也可回复已有告警或日志，再 `@机器人` 写本次要求，例如“查明原因，修复并提交 MR”。
+3. 机器人立即回复“已收到”，然后把当前消息及可选的被回复内容合成一个 Codex turn。
 4. Codex 完成后，机器人把最终结果回复到用户的消息。
 5. 同一根消息下的后续 `@机器人` 会自动携带之前的 `session_id`。
+
+默认 `LARK__REQUIRE_REPLY=false`，无需先发一条消息再回复。
+每条独立的群内 `@机器人` 消息新建会话；要续聊，回复原任务或其线程内结果并 `@机器人`。
+仍须真正提及机器人，仅发送普通群消息不会触发任务。
 
 如果 Codex 超时但已创建 session，机器人会保存该 ID，并提示用户在同一线程发送
 一条新的消息（例如“继续”）。机器人不会自动重跑；只有用户明确发送新消息后，
@@ -93,7 +97,7 @@ LARK__CODEX_URL=http://127.0.0.1:8787/v1/codex
 LARK__CODEX_AUTH_TOKEN=
 LARK__QUEUE_SIZE=32
 LARK__WORKER_COUNT=5
-LARK__REQUIRE_REPLY=true
+LARK__REQUIRE_REPLY=false
 GITLAB_MR_REVIEW__ENABLED=false
 ```
 
@@ -143,7 +147,7 @@ systemctl enable --now ai-review-lark-codex.service
 | `LARK__STATE_PATH` | `.ai-review-lark-state.json` | 会话映射和消息去重状态 |
 | `LARK__QUEUE_SIZE` | `32` | 等待处理的最大任务数 |
 | `LARK__WORKER_COUNT` | `5` | 并行处理不同线程的 worker 数；同一线程仍串行 |
-| `LARK__REQUIRE_REPLY` | `true` | 是否必须回复一条消息后才能发起任务 |
+| `LARK__REQUIRE_REPLY` | `false` | 默认可直接 @ 发起任务；设为 true 时必须回复已有消息 |
 | `LARK__CODEX_URL` | `http://127.0.0.1:8787/v1/codex` | Codex HTTP API |
 | `LARK__CODEX_AUTH_TOKEN` | 无 | Codex HTTP Bearer Token；空表示不发送鉴权头 |
 | `LARK__CODEX_TIMEOUT_SECONDS` | `3660` | 等待单个 Codex turn 的超时；应略大于服务端 turn 超时 |

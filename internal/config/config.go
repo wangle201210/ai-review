@@ -138,7 +138,7 @@ func Load() (*Config, error) {
 			StatePath:           ".ai-review-lark-state.json",
 			QueueSize:           32,
 			WorkerCount:         5,
-			RequireReply:        true,
+			RequireReply:        false,
 			CodexURL:            "http://127.0.0.1:8787/v1/codex",
 			CodexTimeoutSeconds: 3660,
 			BusyRetrySeconds:    5,
